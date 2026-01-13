@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# LabPilot specific
+labpilot.db
+.labpilot.yaml
+config.yaml.local
+
+# Testing
+testing_ground/
+testing_zhipu/
+.pytest_cache/
+.coverage
+
+# IDEs
+.vscode/
+.idea/
+*.swp
