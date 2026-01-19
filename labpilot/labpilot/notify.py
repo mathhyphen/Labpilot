@@ -51,6 +51,16 @@ class BaseNotifier:
         
         return self.send_notification(title, message, "x", "high")
 
+    def send_abort_notification(self, server: str, command: str, commit_hash: str, 
+                                duration: str, log_snippet: str = "") -> bool:
+        title = "🚫 实验中断"
+        message = f"[{server}] {command}\nCommit: {commit_hash[:7]}\nDuration: {duration}"
+        
+        if log_snippet:
+            message += f"\nLog: {log_snippet[:100]}..."
+        
+        return self.send_notification(title, message, "no_entry_sign", "high")
+
     def send_test_notification(self) -> bool:
         title = "LabPilot Test"
         message = "This is a test notification from LabPilot"

@@ -215,6 +215,16 @@ def main():
             if timed_out:
                 exit_code = 124  # 使用124表示超时（参考timeout命令）
             
+    except KeyboardInterrupt:
+        if 'process' in locals() and process.poll() is None:
+            try:
+                process.kill()
+            except:
+                pass
+        exit_code = 130
+        log_content += "\n\n实验被用户中断 (Ctrl+C)\n"
+        print("\n[LabPilot] 实验被用户中断...")
+        
     except Exception as e:
         exit_code = 1
         log_content = str(e)
@@ -247,6 +257,10 @@ def main():
     if exit_code == 0:
         notifier.send_success_notification(
             server_name, command_str, commit_hash, duration_hms, ckpt_path, log_snippet
+        )
+    elif exit_code == 130:
+        notifier.send_abort_notification(
+            server_name, command_str, commit_hash, duration_hms, log_snippet
         )
     else:
         # 获取错误片段（通常是日志的最后几行）
