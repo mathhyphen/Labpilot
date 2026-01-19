@@ -157,8 +157,13 @@ class GitUtils:
             
         # 获取超时设置，默认为 120 秒
         timeout = self.ai_config.get('timeout', 120)
+        
+        # 获取语言设置，默认为中文
+        language = self.ai_config.get('language', 'zh-CN')
+        lang_instruction = "请使用简体中文回复。" if language == 'zh-CN' else f"Please respond in {language}."
 
         prompt = f"""
+        {lang_instruction}
         请根据以下代码变动（git diff），生成一个简洁明了的 git commit message。
         格式要求：
         1. 第一行：简短的总结（不超过 50 个字符）

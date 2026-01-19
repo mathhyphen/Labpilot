@@ -76,12 +76,98 @@ def extract_ckpt_path(log_content):
     return ""
 
 
+def parse_memory_str(mem_str):
+    """解析显存大小字符串，返回 MB 整数"""
+    mem_str = str(mem_str).lower().strip()
+    if mem_str == 'any':
+        return 0
+        
+    multiplier = 1
+    if mem_str.endswith('g') or mem_str.endswith('gb'):
+        multiplier = 1024
+        mem_str = mem_str.rstrip('gb')
+    elif mem_str.endswith('m') or mem_str.endswith('mb'):
+        multiplier = 1
+        mem_str = mem_str.rstrip('mb')
+        
+    try:
+        return int(float(mem_str) * multiplier)
+    except ValueError:
+        return 0
+
+
+def get_free_gpus(min_memory_mb):
+    """获取满足显存要求的空闲 GPU 索引列表"""
+    try:
+        # 查询所有 GPU 的剩余显存
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=index,memory.free', '--format=csv,noheader,nounits'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return []
+            
+        gpus = []
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            idx, free_mem = line.split(',')
+            if int(free_mem) >= min_memory_mb:
+                gpus.append(int(idx))
+                
+        return gpus
+    except FileNotFoundError:
+        # 没有 nvidia-smi，可能是非 GPU 机器
+        return []
+    except Exception as e:
+        print(f"[WARN] 检查 GPU 状态失败: {e}")
+        return []
+
+
+def wait_for_gpu(wait_arg, notifier=None, server_name="unknown", command_str="", commit_hash=""):
+    """等待直到有合适的 GPU 可用"""
+    min_mem = parse_memory_str(wait_arg)
+    print(f"[LabPilot] 正在等待可用 GPU (要求显存 > {min_mem} MB)...")
+    
+    spinner = ['|', '/', '-', '\\']
+    idx = 0
+    
+    while True:
+        available_gpus = get_free_gpus(min_mem)
+        
+        if available_gpus:
+            # 找到可用 GPU
+            chosen_gpu = available_gpus[0]
+            print(f"\n[LabPilot] 资源就绪! 使用 GPU {chosen_gpu}")
+            
+            # 设置环境变量
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(chosen_gpu)
+            
+            # 发送通知（如果在等待中）
+            if notifier:
+                # 这里可以发一个特殊的通知，或者复用 start
+                pass
+                
+            return chosen_gpu
+            
+        # 打印状态
+        sys.stdout.write(f"\r[LabPilot] {spinner[idx]} 暂无满足要求的空闲显卡，等待中...")
+        sys.stdout.flush()
+        idx = (idx + 1) % len(spinner)
+        
+        time.sleep(30)
+
+
 def main():
     """主函数 - labrun 命令的入口点"""
     # 创建命令行参数解析器
     parser = argparse.ArgumentParser(description='LabPilot - AI 实验管理与通知中心')
     parser.add_argument('--timeout', type=int, default=None, 
                         help='实验超时时间（秒），0 表示无超时，默认为配置文件中的设置')
+    parser.add_argument('--wait-gpu', type=str, default=None,
+                        help='等待直到有显存满足要求的显卡可用 (例如: "12g", "10240m", "any")')
     parser.add_argument('command', nargs='+', 
                         help='要执行的命令及参数')
     
@@ -109,6 +195,10 @@ def main():
     
     # 初始化通知器
     notifier = get_notifier()
+    
+    # 自动排队/等待 GPU
+    if args.wait_gpu:
+        wait_for_gpu(args.wait_gpu)
     
     # 尝试提取脚本文件作为特定的提交文件
     specific_files = []
