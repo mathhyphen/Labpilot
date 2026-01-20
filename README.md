@@ -8,6 +8,7 @@ LabPilot is a minimalist experiment management tool designed for deep learning r
 
 - **🤖 AI-Powered Git**: Automatically detects code changes, uses LLMs to generate semantic Git commit messages, and creates snapshots before experiments.
 - **📊 Auto Tracking**: Records commands, parameters, timestamps, Git commits, and execution results automatically.
+- **🔍 GPU Detection**: Automatically detects available GPUs and records GPU information (NVIDIA, AMD) for better experiment context.
 - **📱 Real-time Notifications**: Supports **DingTalk** and **ntfy** for instant updates on your phone.
 - **🌐 Multi-Server Support**: Custom server names for centralized management of experiments across multiple machines.
 - **⚡️ Zero Intrusion**: Just prepend `labrun` to your command. No code modification required.
@@ -55,6 +56,15 @@ labrun python train.py --epochs 100 --lr 1e-4
 
 # Set timeout (e.g., stop after 5 hours)
 labrun --timeout 18000 python train.py
+
+# Wait for GPU with sufficient memory (e.g., wait for GPU with >12GB free memory)
+labrun --wait-gpu 12g python train.py --epochs 100 --lr 1e-4
+
+# Wait for GPU with specific memory in MB
+labrun --wait-gpu 10240m python train.py --batch_size 64
+
+# Wait for any available GPU
+labrun --wait-gpu any python train.py --epochs 50
 ```
 
 ## 🧠 AI-Driven Git Workflow
@@ -88,6 +98,36 @@ notification:
   ntfy:
     topic: "my-secret-topic"
     server: "https://ntfy.sh"
+```
+
+### GPU Detection and Auto-Selection
+
+LabPilot automatically detects available NVIDIA GPUs and provides smart GPU queuing:
+
+**Memory Format Examples:**
+- `12g` = 12 GB
+- `10240m` = 10240 MB  
+- `any` = any available GPU
+
+**How it works:**
+1. Uses `nvidia-smi` to query GPU memory status
+2. Finds GPUs with sufficient free memory
+3. Automatically sets `CUDA_VISIBLE_DEVICES` environment variable
+4. Waits until a suitable GPU becomes available
+
+**Command Examples:**
+```bash
+# Wait for GPU with >8GB free memory
+labrun --wait-gpu 8g python train.py
+
+# Wait for GPU with >16384MB free memory  
+labrun --wait-gpu 16384m python train.py
+
+# Run without GPU waiting (use default GPU)
+labrun python train.py
+
+# Combine with timeout
+labrun --wait-gpu 12g --timeout 3600 python train.py
 ```
 
 ## 📊 Web Dashboard
