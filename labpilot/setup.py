@@ -24,7 +24,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="labpilot",
-    version="2.0.2",
+    version="2.0.3",
     author="LabPilot Team",
     author_email="labpilot@example.com",
     description="AI 实验管理与通知中心 - 轻量级实验跟踪工具",

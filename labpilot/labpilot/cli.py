@@ -201,25 +201,7 @@ def main():
     
     # 自动排队/等待 GPU
     if args.wait_gpu:
-        chosen_gpu_id = wait_for_gpu(args.wait_gpu)
-        
-        # 处理 {gpu} 占位符
-        # 由于我们设置了 CUDA_VISIBLE_DEVICES，目标显卡在容器/进程内的逻辑编号总是 0
-        # 所以我们将 {gpu} 替换为 0，而不是物理 ID
-        # 除非用户明确想要物理 ID，但通常脚本配合 CUDA_VISIBLE_DEVICES 只需要 0
-        logical_gpu_id = 0
-        
-        # 替换命令中的占位符
-        new_command = []
-        for arg in command:
-            if '{gpu}' in arg:
-                new_command.append(arg.replace('{gpu}', str(logical_gpu_id)))
-            elif '{physical_gpu}' in arg: # 增加一个高级占位符，以防万一
-                new_command.append(arg.replace('{physical_gpu}', str(chosen_gpu_id)))
-            else:
-                new_command.append(arg)
-        command = new_command
-        command_str = ' '.join(command)
+        wait_for_gpu(args.wait_gpu)
     
     # 尝试提取脚本文件作为特定的提交文件
     specific_files = []
