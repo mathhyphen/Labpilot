@@ -143,7 +143,10 @@ def wait_for_gpu(wait_arg, notifier=None, server_name="unknown", command_str="",
             print(f"\n[LabPilot] 资源就绪! 使用 GPU {chosen_gpu}")
             
             # 设置环境变量
+            # 关键：强制 CUDA 使用 PCI 总线顺序，确保与 nvidia-smi 索引一致
+            os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
             os.environ['CUDA_VISIBLE_DEVICES'] = str(chosen_gpu)
+            print(f"[LabPilot] 设置 CUDA_VISIBLE_DEVICES={chosen_gpu} (CUDA_DEVICE_ORDER=PCI_BUS_ID)")
             
             # 发送通知（如果在等待中）
             if notifier:
