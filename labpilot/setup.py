@@ -7,8 +7,16 @@ from setuptools import setup, find_packages
 import os
 
 # 读取 README 文件
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+try:
+    with open("README.md", "r", encoding="utf-8") as fh:
+        long_description = fh.read()
+except FileNotFoundError:
+    # 尝试从上级目录读取
+    try:
+        with open("../README.md", "r", encoding="utf-8") as fh:
+            long_description = fh.read()
+    except FileNotFoundError:
+        long_description = "LabPilot - AI Powered Experiment Manager"
 
 # 读取 requirements
 with open("requirements.txt", "r", encoding="utf-8") as fh:
