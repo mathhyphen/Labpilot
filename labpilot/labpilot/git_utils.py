@@ -106,15 +106,24 @@ class GitUtils:
         except Exception:
             return False
     
-    def get_diff(self) -> str:
+    def get_diff(self, specific_files: Optional[list] = None) -> str:
         """获取 Git 差异"""
         if not self.is_git_repo():
             return ""
         
         try:
+            # 构造命令基础
+            cmd_staged = ['git', 'diff', '--cached']
+            cmd_working = ['git', 'diff']
+            
+            # 如果指定了文件，只获取这些文件的差异
+            if specific_files:
+                cmd_staged.extend(specific_files)
+                cmd_working.extend(specific_files)
+            
             # 获取暂存区差异
             result_staged = subprocess.run(
-                ['git', 'diff', '--cached'],
+                cmd_staged,
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd()
@@ -122,7 +131,7 @@ class GitUtils:
             
             # 获取工作区差异
             result_working = subprocess.run(
-                ['git', 'diff'],
+                cmd_working,
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd()
@@ -258,7 +267,7 @@ class GitUtils:
                 pass
                 
             # 2. 获取 Diff
-            diff = self.get_diff()
+            diff = self.get_diff(specific_files=specific_files)
             
             # 3. 尝试生成 AI 消息
             ai_message = self.generate_ai_commit_message(diff)

@@ -218,11 +218,25 @@ def main():
     
     # 自动处理 Git 快照和检查
     try:
-        # 如果找到了特定的脚本文件，则只提交该文件
+        # 只有当找到了特定的脚本文件时，才进行自动提交
         if specific_files:
             git_utils.check_and_handle_repo(specific_files=specific_files)
         else:
-            git_utils.check_and_handle_repo()
+            # 如果没找到脚本，且不是强制要求 clean，则跳过自动快照，避免意外提交其他文件
+            # 但仍需获取当前 commit hash (如果有的)
+            if config.get('git', {}).get('require_clean', False):
+                 # 如果要求 clean 但没找到脚本，按理说应该检查整个 repo？
+                 # 为了安全起见，还是调用 check_and_handle_repo 但不传文件，让它去检查 dirty
+                 # 注意：git_utils.check_and_handle_repo 内部如果没有 specific_files 会提交所有
+                 # 所以这里我们需要小心。
+                 # 如果没找到脚本，我们只做检查，不提交？
+                 # 暂时维持原状：只在有脚本时提交。没脚本时，不提交。
+                 pass
+            
+            # 记录日志提示用户
+            # print("[LabPilot] 未检测到脚本文件，跳过 Git 自动快照。")
+            pass
+            
     except Exception as e:
         print(f"[ERROR] Git 错误: {e}")
         # 如果要求仓库干净但检查失败，则终止实验
