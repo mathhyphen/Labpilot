@@ -153,8 +153,8 @@ class GitUtils:
             return None
             
         api_key = self.ai_config.get('api_key')
-        base_url = self.ai_config.get('base_url', 'https://open.bigmodel.cn/api/paas/v4/')
-        model = self.ai_config.get('model', 'glm-4')
+        base_url = self.ai_config.get('base_url', 'https://api.minimaxi.com/v1')
+        model = self.ai_config.get('model', 'MiniMax-M2.7-highspeed')
         
         if not api_key:
             return None
