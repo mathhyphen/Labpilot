@@ -6,6 +6,7 @@ import sqlite3
 import os
 from datetime import datetime
 import json
+import yaml
 
 app = FastAPI(title="LabPilot API", description="API for managing ML experiments")
 
@@ -50,11 +51,60 @@ class ExperimentUpdate(BaseModel):
     exit_code: Optional[int] = None
     ckpt_path: Optional[str] = None
 
+class TokenPlanConfig(BaseModel):
+    provider: str
+    base_url: str
+    model: str
+    timeout: int
+    language: str
+    max_diff_chars: int
+    has_api_key: bool
+    api_key_source: str
+
 def get_db_connection():
     """Get a connection to the SQLite database"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row  # This allows us to access columns by name
     return conn
+
+def load_labpilot_config():
+    """Load LabPilot config without exposing secrets."""
+    config_paths = [
+        os.path.join(os.getcwd(), ".labpilot.yaml"),
+        os.path.expanduser("~/.labpilot.yaml"),
+        os.path.join(os.path.dirname(__file__), "..", "config.yaml"),
+    ]
+
+    for path in config_paths:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+    return {}
+
+def get_minimax_token_plan_config() -> TokenPlanConfig:
+    """Return sanitized MiniMax token-plan configuration."""
+    config = load_labpilot_config()
+    ai_config = config.get("ai", {})
+    env_api_key = os.getenv("LABPILOT_AI_API_KEY") or os.getenv("MINIMAX_API_KEY")
+    file_api_key = ai_config.get("api_key")
+
+    if env_api_key:
+        api_key_source = "environment"
+    elif file_api_key:
+        api_key_source = "config"
+    else:
+        api_key_source = "missing"
+
+    return TokenPlanConfig(
+        provider=ai_config.get("provider", "minimax"),
+        base_url=os.getenv("LABPILOT_AI_BASE_URL") or ai_config.get("base_url", "https://api.minimaxi.com/v1"),
+        model=os.getenv("LABPILOT_AI_MODEL") or ai_config.get("model", "MiniMax-M2.7-highspeed"),
+        timeout=int(os.getenv("LABPILOT_AI_TIMEOUT") or ai_config.get("timeout", 120)),
+        language=os.getenv("LABPILOT_AI_LANGUAGE") or ai_config.get("language", "zh-CN"),
+        max_diff_chars=int(os.getenv("LABPILOT_AI_MAX_DIFF_CHARS") or ai_config.get("max_diff_chars", 3000)),
+        has_api_key=bool(env_api_key or file_api_key),
+        api_key_source=api_key_source,
+    )
 
 def init_db():
     """Initialize the database with the experiments table if it doesn't exist"""
@@ -88,6 +138,13 @@ init_db()
 @app.get("/")
 def read_root():
     return {"message": "Welcome to LabPilot API", "status": "running"}
+
+@app.get("/ai/token-plan", response_model=TokenPlanConfig)
+def get_ai_token_plan():
+    """
+    Get sanitized MiniMax token-plan settings.
+    """
+    return get_minimax_token_plan_config()
 
 @app.get("/experiments", response_model=List[Experiment])
 def get_experiments(

@@ -35,13 +35,15 @@ server_name: "GPU-Server-01"
 
 # AI 自动 Commit 配置 (支持 OpenAI 格式 API)
 ai:
-  api_key: "your-api-key"
-  base_url: "https://open.bigmodel.cn/api/paas/v4/" # 默认智谱 AI，可换成其他 OpenAI 兼容接口
-  model: "glm-4"
+  provider: "minimax"
+  api_key: "" # 推荐使用 LABPILOT_AI_API_KEY 或 MINIMAX_API_KEY 环境变量
+  base_url: "https://api.minimaxi.com/v1"
+  model: "MiniMax-M2.7-highspeed"
+  max_diff_chars: 3000
 
 # 通知配置
 notification:
-  active: [dingtalk] # 或 [dingtalk, ntfy]
+  active: [dingtalk] # 或 [dingtalk, ntfy, feishu, wecom]
   dingtalk:
     webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=..."
 ```
@@ -98,6 +100,26 @@ notification:
   ntfy:
     topic: "my-secret-topic" # 订阅主题
     server: "https://ntfy.sh"
+```
+
+### 飞书和企业微信通知
+
+```yaml
+notification:
+  active: [feishu, wecom]
+  feishu:
+    webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+    secret: "" # 可选
+  wecom:
+    webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+```
+
+### MiniMax Token Plan API
+
+建议在 shell 中设置 `LABPILOT_AI_API_KEY` 或 `MINIMAX_API_KEY`，不要把真实 token 写进配置文件。Dashboard API 提供一个脱敏配置检查接口：
+
+```bash
+GET /ai/token-plan
 ```
 
 ### 显卡检测和自动选择

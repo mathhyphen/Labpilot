@@ -8,7 +8,8 @@ import os
 import yaml
 import requests
 import json
-from typing import Tuple, Optional
+import ast
+from typing import Tuple, Optional, List, Set
 
 import time
 
@@ -105,6 +106,101 @@ class GitUtils:
             return len(result.stdout.strip()) > 0
         except Exception:
             return False
+
+    def get_dirty_files(self) -> List[str]:
+        """获取当前 Git 工作区中有改动的文件路径。"""
+        if not self.is_git_repo():
+            return []
+
+        try:
+            result = subprocess.run(
+                ['git', 'status', '--porcelain'],
+                capture_output=True,
+                text=True,
+                cwd=os.getcwd()
+            )
+            if result.returncode != 0:
+                return []
+
+            files = []
+            for line in result.stdout.splitlines():
+                if not line.strip():
+                    continue
+                path = line[3:].strip()
+                if ' -> ' in path:
+                    path = path.split(' -> ', 1)[1].strip()
+                if path:
+                    files.append(path.replace('\\', '/'))
+            return files
+        except Exception:
+            return []
+
+    def get_related_dirty_files(self, script_file: str) -> List[str]:
+        """只返回入口脚本及其本地 Python 依赖中已修改的文件。"""
+        dirty_files = set(self.get_dirty_files())
+        if not dirty_files:
+            return []
+
+        related_files = self._collect_local_python_dependencies(script_file)
+        related_files.add(os.path.relpath(script_file, os.getcwd()).replace('\\', '/'))
+        return sorted(path for path in related_files if path in dirty_files)
+
+    def _collect_local_python_dependencies(self, script_file: str) -> Set[str]:
+        """静态解析入口脚本导入的本地 Python 文件。"""
+        root = os.getcwd()
+        visited = set()
+        related = set()
+
+        def relpath(path: str) -> str:
+            return os.path.relpath(path, root).replace('\\', '/')
+
+        def resolve_module(module_name: str, base_dir: str) -> Optional[str]:
+            if not module_name:
+                return None
+
+            parts = module_name.split('.')
+            candidates = [
+                os.path.join(base_dir, *parts) + '.py',
+                os.path.join(root, *parts) + '.py',
+                os.path.join(base_dir, *parts, '__init__.py'),
+                os.path.join(root, *parts, '__init__.py'),
+            ]
+            root_abs = os.path.abspath(root)
+            for candidate in candidates:
+                candidate_abs = os.path.abspath(candidate)
+                if os.path.exists(candidate_abs) and os.path.commonpath([root_abs, candidate_abs]) == root_abs:
+                    return candidate_abs
+            return None
+
+        def visit(path: str):
+            abs_path = os.path.abspath(path)
+            if abs_path in visited or not abs_path.endswith('.py') or not os.path.exists(abs_path):
+                return
+
+            visited.add(abs_path)
+            related.add(relpath(abs_path))
+
+            try:
+                with open(abs_path, 'r', encoding='utf-8') as f:
+                    tree = ast.parse(f.read())
+            except Exception:
+                return
+
+            base_dir = os.path.dirname(abs_path)
+            for node in ast.walk(tree):
+                module_names = []
+                if isinstance(node, ast.Import):
+                    module_names.extend(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    module_names.append(node.module)
+
+                for module_name in module_names:
+                    module_path = resolve_module(module_name, base_dir)
+                    if module_path:
+                        visit(module_path)
+
+        visit(script_file)
+        return related
     
     def get_diff(self, specific_files: Optional[list] = None) -> str:
         """获取 Git 差异"""
@@ -152,32 +248,32 @@ class GitUtils:
         if not diff or not self.ai_config:
             return None
             
-        api_key = self.ai_config.get('api_key')
-        base_url = self.ai_config.get('base_url', 'https://api.minimaxi.com/v1')
-        model = self.ai_config.get('model', 'MiniMax-M2.7-highspeed')
+        api_key = self._get_ai_setting('api_key', env_names=['LABPILOT_AI_API_KEY', 'MINIMAX_API_KEY'])
+        base_url = self._get_ai_setting('base_url', 'https://api.minimaxi.com/v1')
+        model = self._get_ai_setting('model', 'MiniMax-M2.7-highspeed')
         
         if not api_key:
             return None
             
         # 限制 Diff 长度，防止超过 token 限制
-        max_len = 3000
+        max_len = int(self._get_ai_setting('max_diff_chars', 3000))
         if len(diff) > max_len:
             diff = diff[:max_len] + "\n... (truncated)"
             
         # 获取超时设置，默认为 120 秒
-        timeout = self.ai_config.get('timeout', 120)
+        timeout = self._get_ai_setting('timeout', 120)
         
         # 获取语言设置，默认为中文
-        language = self.ai_config.get('language', 'zh-CN')
+        language = self._get_ai_setting('language', 'zh-CN')
         lang_instruction = "请使用简体中文回复。" if language == 'zh-CN' else f"Please respond in {language}."
 
         prompt = f"""
         {lang_instruction}
-        请根据以下代码变动（git diff），生成一个简洁明了的 git commit message。
+        请根据以下入口脚本及其关联脚本的 git diff，生成一个简洁明了的 git commit message。
         格式要求：
-        1. 第一行：简短的总结（不超过 50 个字符）
+        1. 第一行：简短总结，不超过 50 个字符，建议使用 conventional commit 风格
         2. 第二行：空行
-        3. 第三行开始：详细的改动说明
+        3. 第三行开始：总结脚本行为或实验逻辑的关键变动
         
         代码变动：
         {diff}
@@ -245,6 +341,20 @@ class GitUtils:
             print(f"[WARN] AI Request Failed (timeout={timeout}s): {e}")
             return None
 
+    def _get_ai_setting(self, key: str, default=None, env_names: Optional[List[str]] = None):
+        """从环境变量或配置文件读取 AI 设置，环境变量优先。"""
+        for env_name in env_names or []:
+            value = os.getenv(env_name)
+            if value:
+                return value
+
+        env_name = f"LABPILOT_AI_{key.upper()}"
+        value = os.getenv(env_name)
+        if value:
+            return value
+
+        return self.ai_config.get(key, default)
+
     def auto_commit(self, message: str = None, specific_files: Optional[list] = None) -> str:
         """自动提交更改"""
         if not self.is_git_repo():
@@ -286,8 +396,12 @@ class GitUtils:
             else:
                 subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd())
             
-            # 提交更改
-            subprocess.run(['git', 'commit', '-m', message], check=True, cwd=os.getcwd())
+            # 提交更改；指定文件时忽略其他已暂存内容，避免带入无关改动。
+            commit_cmd = ['git', 'commit', '-m', message]
+            if specific_files:
+                commit_cmd.extend(['--only', '--'])
+                commit_cmd.extend(specific_files)
+            subprocess.run(commit_cmd, check=True, cwd=os.getcwd())
             
             # 获取新 commit hash
             commit_hash, _ = self.get_git_info()

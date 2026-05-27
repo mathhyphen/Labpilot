@@ -3,8 +3,12 @@
 # AI 配置 - MiniMax Token Plan
 # =========================================================================================
 ai:
+  # AI 服务提供方；当前默认按 MiniMax Token Plan / OpenAI 兼容接口调用
+  provider: "minimax"
+
   # MiniMax API Token Plan 配置
-  api_key: ""  # 请替换为您的 MiniMax API Key
+  # 建议通过环境变量 LABPILOT_AI_API_KEY 或 MINIMAX_API_KEY 配置，不要写入仓库
+  api_key: ""  # 请替换为您的 MiniMax API Key，或留空改用环境变量
 
   # MiniMax API 地址 (OpenAI 兼容接口)
   base_url: "https://api.minimaxi.com/v1"
@@ -18,11 +22,14 @@ ai:
   # 语言设置: zh-CN 或 en
   language: "zh-CN"
 
+  # 发送给 AI 总结的最大 diff 字符数
+  max_diff_chars: 3000
+
 # =========================================================================================
 # 通知配置 - 钉钉机器人
 # =========================================================================================
 notification:
-  # 启用的通知渠道: dingtalk, ntfy
+  # 启用的通知渠道: dingtalk, ntfy, feishu, wecom
   active: []
   dingtalk:
     # --------------------------------------------------------------------------------------
@@ -41,6 +48,25 @@ notification:
     # 钉钉机器人签名密钥（可选）
     # 如果在创建机器人时选择了「加签」安全设置，需填写此密钥
     secret: ""  # 可选，加签密钥
+
+  ntfy:
+    server: "https://ntfy.sh"
+    topic: ""
+    username: ""
+    password: ""
+    timeout: 5
+
+  feishu:
+    # 飞书自定义机器人 webhook URL
+    webhook_url: ""
+    # 飞书签名密钥（可选）
+    secret: ""
+    timeout: 5
+
+  wecom:
+    # 企业微信/微信机器人 webhook URL
+    webhook_url: ""
+    timeout: 5
 
 # =========================================================================================
 # 数据库配置

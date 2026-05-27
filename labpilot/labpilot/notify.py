@@ -127,6 +127,110 @@ class DingTalkNotifier(BaseNotifier):
             return False
 
 
+class FeishuNotifier(BaseNotifier):
+    """飞书自定义机器人通知器"""
+    def __init__(self, config):
+        super().__init__(config)
+        self.feishu_config = self.config.get('notification', {}).get('feishu', {})
+
+    def _build_payload(self, title: str, message: str) -> dict:
+        return {
+            "msg_type": "interactive",
+            "card": {
+                "config": {"wide_screen_mode": True},
+                "header": {
+                    "title": {"tag": "plain_text", "content": title}
+                },
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": message
+                    }
+                ]
+            }
+        }
+
+    def send_notification(self, title: str, message: str, tags: str = "",
+                         priority: str = "default") -> bool:
+        webhook_url = self.feishu_config.get('webhook_url', '')
+        timeout = self.feishu_config.get('timeout', 5)
+        secret = self.feishu_config.get('secret', '')
+
+        if not webhook_url:
+            print("[ERROR] 飞书机器人配置错误：webhook_url 未配置")
+            return False
+
+        payload = self._build_payload(title, message)
+        if secret:
+            timestamp = str(int(time.time()))
+            string_to_sign = f"{timestamp}\n{secret}"
+            hmac_code = hmac.new(
+                string_to_sign.encode('utf-8'),
+                b"",
+                digestmod=hashlib.sha256
+            ).digest()
+            payload["timestamp"] = timestamp
+            payload["sign"] = base64.b64encode(hmac_code).decode('utf-8')
+
+        try:
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=timeout
+            )
+            result = response.json()
+            if result.get("StatusCode") == 0 or result.get("code") == 0:
+                print("[SUCCESS] 飞书机器人通知发送成功")
+                return True
+            print(f"[ERROR] 发送飞书机器人通知失败: {result}")
+            return False
+        except Exception as e:
+            print(f"[ERROR] 发送飞书机器人通知时发生错误: {str(e)}")
+            return False
+
+
+class WeComNotifier(BaseNotifier):
+    """企业微信/微信机器人通知器"""
+    def __init__(self, config):
+        super().__init__(config)
+        notification_config = self.config.get('notification', {})
+        self.wecom_config = notification_config.get('wecom') or notification_config.get('wechat', {})
+
+    def send_notification(self, title: str, message: str, tags: str = "",
+                         priority: str = "default") -> bool:
+        webhook_url = self.wecom_config.get('webhook_url', '')
+        timeout = self.wecom_config.get('timeout', 5)
+
+        if not webhook_url:
+            print("[ERROR] 企业微信机器人配置错误：webhook_url 未配置")
+            return False
+
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": f"### {title}\n{message}"
+            }
+        }
+
+        try:
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=timeout
+            )
+            result = response.json()
+            if result.get('errcode') == 0:
+                print("[SUCCESS] 企业微信机器人通知发送成功")
+                return True
+            print(f"[ERROR] 发送企业微信机器人通知失败: {result}")
+            return False
+        except Exception as e:
+            print(f"[ERROR] 发送企业微信机器人通知时发生错误: {str(e)}")
+            return False
+
+
 class NtfyNotifier(BaseNotifier):
     """ntfy 通知器"""
     def __init__(self, config):
@@ -252,6 +356,10 @@ def get_notifier(config_path: Optional[str] = None) -> BaseNotifier:
             notifiers.append(DingTalkNotifier(config))
         if 'ntfy' in active_providers:
             notifiers.append(NtfyNotifier(config))
+        if 'feishu' in active_providers or 'lark' in active_providers:
+            notifiers.append(FeishuNotifier(config))
+        if 'wecom' in active_providers or 'wechat' in active_providers:
+            notifiers.append(WeComNotifier(config))
             
         if len(notifiers) == 1:
             _notifier_instance = notifiers[0]

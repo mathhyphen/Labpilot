@@ -35,13 +35,15 @@ server_name: "GPU-Server-01"
 
 # AI Auto-Commit Configuration (OpenAI Compatible)
 ai:
-  api_key: "your-api-key"
-  base_url: "https://open.bigmodel.cn/api/paas/v4/" # Default: Zhipu AI
-  model: "glm-4"
+  provider: "minimax"
+  api_key: "" # Prefer LABPILOT_AI_API_KEY or MINIMAX_API_KEY env vars
+  base_url: "https://api.minimaxi.com/v1"
+  model: "MiniMax-M2.7-highspeed"
+  max_diff_chars: 3000
 
 # Notification Configuration
 notification:
-  active: [dingtalk] # or [dingtalk, ntfy]
+  active: [dingtalk] # or [dingtalk, ntfy, feishu, wecom]
   dingtalk:
     webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=..."
 ```
@@ -98,6 +100,26 @@ notification:
   ntfy:
     topic: "my-secret-topic"
     server: "https://ntfy.sh"
+```
+
+### Feishu and WeCom Notifications
+
+```yaml
+notification:
+  active: [feishu, wecom]
+  feishu:
+    webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+    secret: "" # optional
+  wecom:
+    webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+```
+
+### MiniMax Token Plan API
+
+Set `LABPILOT_AI_API_KEY` or `MINIMAX_API_KEY` in your shell instead of committing it to config files. The dashboard API exposes a sanitized config check at:
+
+```bash
+GET /ai/token-plan
 ```
 
 ### GPU Detection and Auto-Selection

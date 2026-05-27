@@ -26,7 +26,7 @@ def load_config():
     config_paths = [
         os.path.join(os.getcwd(), ".labpilot.yaml"),
         os.path.expanduser("~/.labpilot.yaml"),
-        os.path.join(os.path.dirname(__file__), "config.yaml")
+        os.path.join(os.path.dirname(__file__), "..", "config.yaml")
     ]
     
     config = {}
@@ -214,7 +214,9 @@ def main():
             break
             
     if script_file:
-        specific_files.append(script_file)
+        specific_files = git_utils.get_related_dirty_files(script_file)
+        if specific_files:
+            print(f"[LabPilot] 将只自动提交入口脚本及关联改动: {', '.join(specific_files)}")
     
     # 自动处理 Git 快照和检查
     try:
