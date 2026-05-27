@@ -2,14 +2,17 @@
 
 # LabPilot - AI 驱动的轻量级实验管理助手
 
+[![最新版](https://img.shields.io/github/v/release/mathhyphen/Labpilot?label=release)](https://github.com/mathhyphen/Labpilot/releases/latest)
+
 LabPilot 是专为深度学习研究者设计的极简实验管理工具。告别繁琐的手动记录，LabPilot 自动帮你管理代码版本、监控实验状态，并通过 AI 自动生成提交信息。
 
 ## ✨ 核心特性
 
-- **🤖 AI 辅助 Git**：自动检测代码变动，调用大模型（LLM）生成清晰的 Git Commit Message 并自动提交。
+- **🤖 AI 辅助 Git**：使用 MiniMax 或其他 OpenAI 兼容大模型总结脚本变动，并在实验前创建快照。
 - **📊 自动实验跟踪**：一键运行，自动记录命令、参数、时间、Git 版本和运行结果。
 - **🔍 显卡检测**：自动检测可用显卡，记录 GPU 信息（NVIDIA、AMD），为实验提供更好的硬件环境记录。
-- **📱 实时通知**：支持 **DingTalk (钉钉)** 和 **ntfy**，随时随地掌握实验进度。
+- **📱 实时通知**：支持 **DingTalk (钉钉)**、**ntfy**、**飞书** 和 **企业微信/微信机器人**，随时随地掌握实验进度。
+- **🧹 精准 Git 快照**：运行脚本时只提交入口脚本及相关本地 Python 依赖改动，不污染无关工作。
 - **🌐 多服务器支持**：支持自定义服务器名称，集中管理多台机器的实验记录。
 - **⚡️ 零侵入**：无需修改代码，只需在命令前加上 `labrun`。
 
@@ -22,6 +25,8 @@ git clone https://github.com/mathhyphen/Labpilot.git
 cd Labpilot
 pip install -e .
 ```
+
+也可以从 [GitHub Releases](https://github.com/mathhyphen/Labpilot/releases/latest) 下载最新版源码包。
 
 ### 2. 配置
 
@@ -73,11 +78,11 @@ labrun --wait-gpu any python train.py --epochs 50
 
 LabPilot 的核心功能之一是**自动化版本控制**。当您运行实验时：
 
-1. 检测当前代码是否有未提交的更改。
-2. 如果有更改，自动收集 `git diff`。
-3. **调用配置的 LLM API** 分析代码变动。
-4. 生成语义化的 Commit Message（例如："feat: add learning rate scheduler"）。
-5. 自动执行 `git commit` 保存实验现场快照。
+1. 从命令中识别入口脚本。
+2. 查找入口脚本及其本地 Python import 依赖中的未提交改动。
+3. 只收集这些关联文件的 `git diff`。
+4. **调用配置的 LLM API** 总结脚本变动。
+5. 自动执行 `git commit --only`，避免把无关的已暂存或未暂存文件带进实验快照。
 
 这确保了您的每一次实验记录都严格对应唯一的代码版本，且拥有可读的历史记录。
 

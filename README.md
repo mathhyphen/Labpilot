@@ -2,14 +2,17 @@
 
 # LabPilot - AI-Powered Lightweight Experiment Manager
 
+[![Latest Release](https://img.shields.io/github/v/release/mathhyphen/Labpilot?label=release)](https://github.com/mathhyphen/Labpilot/releases/latest)
+
 LabPilot is a minimalist experiment management tool designed for deep learning researchers. It automates experiment tracking, version control, and notifications with zero code changes.
 
 ## ✨ Key Features
 
-- **🤖 AI-Powered Git**: Automatically detects code changes, uses LLMs to generate semantic Git commit messages, and creates snapshots before experiments.
+- **🤖 AI-Powered Git**: Uses MiniMax or any OpenAI-compatible LLM to summarize script changes and create scoped snapshots before experiments.
 - **📊 Auto Tracking**: Records commands, parameters, timestamps, Git commits, and execution results automatically.
 - **🔍 GPU Detection**: Automatically detects available GPUs and records GPU information (NVIDIA, AMD) for better experiment context.
-- **📱 Real-time Notifications**: Supports **DingTalk** and **ntfy** for instant updates on your phone.
+- **📱 Real-time Notifications**: Supports **DingTalk**, **ntfy**, **Feishu/Lark**, and **WeCom/WeChat Work** robot notifications.
+- **🧹 Scoped Git Snapshots**: When running a script, LabPilot only commits the entry script and related local Python dependencies, leaving unrelated work untouched.
 - **🌐 Multi-Server Support**: Custom server names for centralized management of experiments across multiple machines.
 - **⚡️ Zero Intrusion**: Just prepend `labrun` to your command. No code modification required.
 
@@ -22,6 +25,8 @@ git clone https://github.com/mathhyphen/Labpilot.git
 cd Labpilot
 pip install -e .
 ```
+
+Or download the latest source distribution from [GitHub Releases](https://github.com/mathhyphen/Labpilot/releases/latest).
 
 ### 2. Configuration
 
@@ -73,11 +78,11 @@ labrun --wait-gpu any python train.py --epochs 50
 
 One of LabPilot's core features is **Automated Version Control**. When you launch an experiment:
 
-1. Checks for uncommitted code changes.
-2. Captures `git diff` if changes exist.
-3. **Calls the configured LLM API** to analyze code changes.
-4. Generates a meaningful commit message (e.g., "feat: add learning rate scheduler").
-5. Automatically executes `git commit` to snapshot the experiment state.
+1. Detects the entry script from your command.
+2. Finds uncommitted changes in that script and its local Python imports.
+3. Captures a scoped `git diff` for only those related files.
+4. **Calls the configured LLM API** to summarize the changes.
+5. Automatically executes `git commit --only` so unrelated staged or unstaged files are not included.
 
 This ensures every experiment run is strictly tied to a specific code version with readable history.
 
