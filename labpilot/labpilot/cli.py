@@ -96,14 +96,31 @@ def parse_memory_str(mem_str):
         return 0
 
 
-def get_free_gpus(min_memory_mb):
+def safe_kill_process(process: subprocess.Popen) -> None:
+    """Kill a subprocess, swallowing only expected OS errors.
+
+    The previous bare ``except:`` also caught ``KeyboardInterrupt`` and
+    ``SystemExit`` (effectively making the wrapper unkillable). We narrow
+    the catch to ``(ProcessLookupError, OSError)`` so that real signals
+    propagate to the caller. ``ProcessLookupError`` covers the case
+    where the child has already exited; ``OSError`` is its parent class
+    on POSIX/Windows for other kernel-level failures.
+    """
+    try:
+        process.kill()
+    except (ProcessLookupError, OSError):
+        pass
+
+
+def get_free_gpus(min_memory_mb: int) -> list:
     """获取满足显存要求的空闲 GPU 索引列表"""
     try:
         # 查询所有 GPU 的剩余显存
         result = subprocess.run(
             ['nvidia-smi', '--query-gpu=index,memory.free', '--format=csv,noheader,nounits'],
             capture_output=True,
-            text=True
+            text=True,
+            timeout=30,
         )
         
         if result.returncode != 0:
@@ -326,10 +343,7 @@ def main():
             
     except KeyboardInterrupt:
         if 'process' in locals() and process.poll() is None:
-            try:
-                process.kill()
-            except:
-                pass
+            safe_kill_process(process)
         exit_code = 130
         log_content += "\n\n实验被用户中断 (Ctrl+C)\n"
         print("\n[LabPilot] 实验被用户中断...")

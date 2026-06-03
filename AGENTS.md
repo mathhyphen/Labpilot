@@ -6,7 +6,7 @@ This document provides essential information for agentic coding agents working o
 LabPilot is a lightweight experiment management tool for deep learning researchers. It includes:
 - A CLI tool (`labrun`) for tracking experiments.
 - A FastAPI-based web dashboard.
-- Notification integration (DingTalk, despite README mentioning ntfy).
+- Notification integration: **DingTalk**, **Feishu/Lark**, **WeCom/WeChat Work**, **ntfy**, **PushPlus** (personal WeChat), **WxPusher** (personal WeChat), **OpenClaw CLI** (personal WeChat via ClawBot plugin).
 - SQLite database for storage.
 
 ## Build and Installation
@@ -55,8 +55,14 @@ LabPilot is a lightweight experiment management tool for deep learning researche
 - See `labpilot/labpilot/cli.py` for exception handling patterns.
 
 ## Configuration & Discrepancies
-- **Notification System**: The code (`notify.py`, `cli.py`) explicitly implements **DingTalk** notifications. The `README.md` incorrectly claims support for **ntfy**. Agents should assume DingTalk is the supported notification channel unless implementing ntfy support.
+- **Notification System**: All channels listed under "Notification integration" above are implemented in `labpilot/notify.py` and registered in `get_notifier()` (matched by the `active:` list in config).
 - **Config Files**: Supported in order of precedence: `.labpilot.yaml` (cwd), `~/.labpilot.yaml` (home), `config.yaml` (package).
+
+## Testing
+- All tests live under `tests/` and run with `python -m pytest tests/` from the repo root.
+- A `pytest.ini` is configured with `pythonpath = labpilot` so the inner package is importable.
+- Run the labpilot CLI: `labrun --help`
+- Run the API: `uvicorn api.main:app --host 0.0.0.0 --port 8000` (from the `labpilot/` subdir)
 
 ## Architecture
 - **CLI (`labpilot/labpilot/cli.py`)**: Entry point, handles command execution, logging, and DB updates.
