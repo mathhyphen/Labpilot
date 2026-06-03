@@ -144,13 +144,22 @@ class NotificationTests(unittest.TestCase):
         self.assertTrue(notifier.send_notification("标题", "**内容**"))
 
         args, kwargs = post.call_args
-        self.assertEqual(args[0], "http://www.pushplus.plus/send")
+        # MUST be HTTPS (review finding C1: token-in-body over HTTP leaks
+        # the PushPlus credential tied to a personal WeChat account).
+        self.assertEqual(args[0], "https://www.pushplus.plus/send")
         self.assertEqual(kwargs["timeout"], 4)
         body = kwargs["json"]
         self.assertEqual(body["token"], "tok-123")
         self.assertEqual(body["title"], "标题")
         self.assertEqual(body["content"], "**内容**")
         self.assertEqual(body["template"], "markdown")
+
+    def test_pushplus_endpoint_constant_is_https(self):
+        """Regression guard for C1: the endpoint constant must stay https."""
+        self.assertTrue(
+            PushPlusNotifier.ENDPOINT.startswith("https://"),
+            f"PushPlus endpoint must be https, got {PushPlusNotifier.ENDPOINT!r}",
+        )
 
     @patch("labpilot.notify.requests.post")
     def test_pushplus_missing_token_fails_silently(self, post):
@@ -184,7 +193,7 @@ class NotificationTests(unittest.TestCase):
                 "wxpusher": {
                     "app_token": "at_xxx",
                     "uids": ["uid_1", "uid_2"],
-                    "base_url": "https://wxp.example.com",
+                    "base_url": "https://wxpusher.zjiecode.com",
                     "timeout": 3,
                 }
             }
@@ -194,7 +203,7 @@ class NotificationTests(unittest.TestCase):
 
         args, kwargs = post.call_args
         self.assertEqual(
-            args[0], "https://wxp.example.com/api/send/message"
+            args[0], "https://wxpusher.zjiecode.com/api/send/message"
         )
         self.assertEqual(kwargs["timeout"], 3)
         body = kwargs["json"]
@@ -202,6 +211,39 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(body["uids"], ["uid_1", "uid_2"])
         self.assertEqual(body["content"], "<b>内容</b>")
         self.assertIn("标题", body["summary"])
+
+    @patch("labpilot.notify.requests.post")
+    def test_wxpusher_rejects_non_allowlisted_base_url(self, post):
+        """Review finding H7: base_url must be https + in allowlist.
+
+        Otherwise a config pointing at http://127.0.0.1:8500 would turn
+        the notifier into an SSRF probe that also leaks app_token.
+        """
+        notifier = WxPusherNotifier({
+            "notification": {
+                "wxpusher": {
+                    "app_token": "at",
+                    "uids": ["u1"],
+                    "base_url": "https://attacker.example.com",
+                }
+            }
+        })
+        self.assertFalse(notifier.send_notification("t", "m"))
+        post.assert_not_called()
+
+    def test_wxpusher_rejects_http_scheme(self):
+        notifier = WxPusherNotifier({
+            "notification": {
+                "wxpusher": {
+                    "app_token": "at",
+                    "uids": ["u1"],
+                    "base_url": "http://wxpusher.zjiecode.com",
+                }
+            }
+        })
+        with patch("labpilot.notify.requests.post") as post:
+            self.assertFalse(notifier.send_notification("t", "m"))
+            post.assert_not_called()
 
     @patch("labpilot.notify.requests.post")
     def test_wxpusher_missing_app_token_fails_silently(self, post):

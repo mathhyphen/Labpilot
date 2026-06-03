@@ -40,12 +40,16 @@ def _cors_allows_credentials() -> bool:
 app = FastAPI(title="LabPilot API", description="API for managing ML experiments")
 
 # Add CORS middleware
+# Methods and headers are explicit allowlists (not "*"). Review finding
+# H6: wildcard methods + headers with credentials would let any
+# allowlisted origin perform state-changing requests and craft arbitrary
+# authentication headers, weakening future auth additions.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),
     allow_credentials=_cors_allows_credentials(),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Database configuration
