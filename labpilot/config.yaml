@@ -26,10 +26,13 @@ ai:
   max_diff_chars: 3000
 
 # =========================================================================================
-# 通知配置 - 钉钉机器人
+# 通知配置
+# 启用的渠道（按需勾选）:
+#   dingtalk, feishu, wecom, ntfy,
+#   pushplus, wxpusher  (个人微信推送)
+#   openclaw           (个人微信 — 需要 OpenClaw + ClawBot 插件)
 # =========================================================================================
 notification:
-  # 启用的通知渠道: dingtalk, ntfy, feishu, wecom
   active: []
   dingtalk:
     # --------------------------------------------------------------------------------------
@@ -67,6 +70,35 @@ notification:
     # 企业微信/微信机器人 webhook URL
     webhook_url: ""
     timeout: 5
+
+  pushplus:
+    # PushPlus 个人微信推送（pushplus.plus）— 免费 200 条/天
+    # 1. 在 pushplus.plus 扫码关注公众号拿 token
+    # 2. 填到下面
+    token: ""
+    # 模板类型: markdown / html / txt / json
+    template: "markdown"
+    timeout: 5
+
+  wxpusher:
+    # WxPusher 个人微信推送（wxpusher.zjiecode.com）— 富文本
+    # 1. 在 wxpusher 创建应用拿 app_token
+    # 2. 用户扫码关注拿 uid
+    app_token: ""
+    uids: []  # 列表，例如 ["uid_xxxxx"]
+    base_url: "https://wxpusher.zjiecode.com"
+    timeout: 5
+
+  openclaw:
+    # OpenClaw CLI 包装（个人微信官方 ClawBot 插件）
+    # 前置条件:
+    #   - Node.js 22+ & npm i -g openclaw@latest
+    #   - 微信版本 iOS >= 8.0.70 / Android >= 8.0.69
+    #   - 在 "我-设置-插件" 启用 ClawBot，扫码绑定
+    # 注意: ClawBot 插件当前灰度放量中
+    cli_path: "openclaw"
+    user_id: ""  # 微信用户的 user_id
+    timeout: 10
 
 # =========================================================================================
 # 数据库配置

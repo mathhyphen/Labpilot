@@ -11,7 +11,7 @@ LabPilot is a minimalist experiment management tool designed for deep learning r
 - **🤖 AI-Powered Git**: Uses MiniMax or any OpenAI-compatible LLM to summarize script changes and create scoped snapshots before experiments.
 - **📊 Auto Tracking**: Records commands, parameters, timestamps, Git commits, and execution results automatically.
 - **🔍 GPU Detection**: Automatically detects available GPUs and records GPU information (NVIDIA, AMD) for better experiment context.
-- **📱 Real-time Notifications**: Supports **DingTalk**, **ntfy**, **Feishu/Lark**, and **WeCom/WeChat Work** robot notifications.
+- **📱 Real-time Notifications**: Supports **DingTalk**, **ntfy**, **Feishu/Lark**, **WeCom/WeChat Work**, **PushPlus**, **WxPusher** (personal WeChat), and **OpenClaw** (personal WeChat via Tencent's official ClawBot plugin).
 - **🧹 Scoped Git Snapshots**: When running a script, LabPilot only commits the entry script and related local Python dependencies, leaving unrelated work untouched.
 - **🌐 Multi-Server Support**: Custom server names for centralized management of experiments across multiple machines.
 - **⚡️ Zero Intrusion**: Just prepend `labrun` to your command. No code modification required.
@@ -48,7 +48,7 @@ ai:
 
 # Notification Configuration
 notification:
-  active: [dingtalk] # or [dingtalk, ntfy, feishu, wecom]
+  active: [dingtalk] # or [feishu, pushplus, wxpusher, openclaw, ...]
   dingtalk:
     webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=..."
 ```
@@ -118,6 +118,39 @@ notification:
   wecom:
     webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
 ```
+
+### Personal WeChat via PushPlus / WxPusher
+
+Both services push to your **personal WeChat** through a WeChat official account — no group bot required.
+
+```yaml
+notification:
+  active: [pushplus]  # or wxpusher
+  pushplus:
+    token: "your-pushplus-token"  # get from pushplus.plus after scanning the QR code
+    template: "markdown"
+  wxpusher:
+    app_token: "your-app-token"  # from wxpusher.zjiecode.com
+    uids: ["uid_xxxxx"]          # the uid you got after scanning
+```
+
+- **PushPlus** — Free 200 messages/day, markdown templates. Setup: scan the QR at pushplus.plus, copy your token.
+- **WxPusher** — Rich HTML, individual or topic-based push. Setup: create an app at wxpusher.zjiecode.com, share the QR, collect uids.
+
+### Personal WeChat via OpenClaw (ClawBot plugin)
+
+For users with a deployed **OpenClaw** instance bound to the **ClawBot** plugin (Tencent's official iLink protocol for personal WeChat, released 2026/03/22):
+
+```yaml
+notification:
+  active: [openclaw]
+  openclaw:
+    cli_path: "openclaw"          # or absolute path
+    user_id: "your-wechat-user-id"
+    timeout: 10
+```
+
+Prerequisites: Node.js 22+, `npm i -g openclaw@latest`, WeChat iOS ≥ 8.0.70 / Android ≥ 8.0.69, enable ClawBot in *Me → Settings → Plugins*. The plugin is in gradual rollout; not all accounts have access yet.
 
 ### MiniMax Token Plan API
 

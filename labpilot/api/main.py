@@ -8,13 +8,42 @@ from datetime import datetime
 import json
 import yaml
 
+
+# CORS defaults: secure-by-default. Wildcard ``*`` with credentials is
+# rejected by browsers AND unsafe; we force credentials off when the
+# operator opts into ``*`` and otherwise default to localhost.
+DEFAULT_CORS_ORIGINS = ["http://localhost:8000"]
+_CORS_WILDCARD = "*"
+
+
+def _get_cors_origins() -> List[str]:
+    """Parse the ``LABPILOT_CORS_ORIGINS`` env var into a list of origins.
+
+    Behavior:
+      * Unset / empty -> ``["http://localhost:8000"]``
+      * ``*`` -> ``["*"]`` (caller MUST disable credentials)
+      * Otherwise -> CSV of trimmed, non-empty origins
+    """
+    raw = os.environ.get("LABPILOT_CORS_ORIGINS", "").strip()
+    if not raw:
+        return list(DEFAULT_CORS_ORIGINS)
+    if raw == _CORS_WILDCARD:
+        return [_CORS_WILDCARD]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _cors_allows_credentials() -> bool:
+    """Credentials are safe only when origins is an explicit allowlist."""
+    return _get_cors_origins() != [_CORS_WILDCARD]
+
+
 app = FastAPI(title="LabPilot API", description="API for managing ML experiments")
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
+    allow_origins=_get_cors_origins(),
+    allow_credentials=_cors_allows_credentials(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

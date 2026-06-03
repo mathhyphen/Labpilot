@@ -13,6 +13,11 @@ from typing import Tuple, Optional, List, Set
 
 import time
 
+# Default timeout for every git / nvidia-smi subprocess invocation. Without
+# this, a hung child (driver bug, NFS stall, frozen git process) could
+# block labrun indefinitely. See tests/test_subprocess_timeouts.py.
+DEFAULT_SUBPROCESS_TIMEOUT = 30
+
 class GitUtils:
     def __init__(self, config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
@@ -57,7 +62,8 @@ class GitUtils:
                 ['git', 'rev-parse', '--git-dir'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return result.returncode == 0
         except Exception:
@@ -74,7 +80,8 @@ class GitUtils:
                 ['git', 'rev-parse', 'HEAD'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             commit_hash = result.stdout.strip() if result.returncode == 0 else "unknown"
             
@@ -83,7 +90,8 @@ class GitUtils:
                 ['git', 'log', '-1', '--pretty=%s'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             commit_message = result.stdout.strip() if result.returncode == 0 else "unknown"
             
@@ -101,7 +109,8 @@ class GitUtils:
                 ['git', 'status', '--porcelain'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return len(result.stdout.strip()) > 0
         except Exception:
@@ -117,7 +126,8 @@ class GitUtils:
                 ['git', 'status', '--porcelain'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             if result.returncode != 0:
                 return []
@@ -222,15 +232,17 @@ class GitUtils:
                 cmd_staged,
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
-            
+
             # 获取工作区差异
             result_working = subprocess.run(
                 cmd_working,
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             
             diff = ""
@@ -370,9 +382,9 @@ class GitUtils:
             # 1. 添加更改到暂存区，以便获取完整的 diff
             try:
                 if specific_files:
-                    subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd())
+                    subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
                 else:
-                    subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd())
+                    subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
             except subprocess.CalledProcessError:
                 pass
                 
@@ -392,16 +404,16 @@ class GitUtils:
         try:
             # 确保再次添加（如果之前没添加成功，或者防止某些情况）
             if specific_files:
-                subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd())
+                subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
             else:
-                subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd())
+                subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
             
             # 提交更改；指定文件时忽略其他已暂存内容，避免带入无关改动。
             commit_cmd = ['git', 'commit', '-m', message]
             if specific_files:
                 commit_cmd.extend(['--only', '--'])
                 commit_cmd.extend(specific_files)
-            subprocess.run(commit_cmd, check=True, cwd=os.getcwd())
+            subprocess.run(commit_cmd, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
             
             # 获取新 commit hash
             commit_hash, _ = self.get_git_info()
@@ -439,7 +451,8 @@ class GitUtils:
                 ['git', 'log', '-1', '--pretty=%B'],
                 capture_output=True,
                 text=True,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return result.stdout.strip() if result.returncode == 0 else "unknown"
         except Exception:

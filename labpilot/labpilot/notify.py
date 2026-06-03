@@ -10,6 +10,7 @@ import hmac
 import hashlib
 import base64
 import time
+import subprocess
 from typing import Optional, Union
 
 
@@ -162,11 +163,14 @@ class FeishuNotifier(BaseNotifier):
 
         payload = self._build_payload(title, message)
         if secret:
-            timestamp = str(int(time.time()))
+            # Feishu custom bot signing: key=secret, msg=timestamp+'\n'+secret
+            # timestamp must be in milliseconds. See:
+            # https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot
+            timestamp = str(int(time.time() * 1000))
             string_to_sign = f"{timestamp}\n{secret}"
             hmac_code = hmac.new(
+                secret.encode('utf-8'),
                 string_to_sign.encode('utf-8'),
-                b"",
                 digestmod=hashlib.sha256
             ).digest()
             payload["timestamp"] = timestamp
@@ -296,6 +300,169 @@ class MultiNotifier(BaseNotifier):
         return any(results)
 
 
+class PushPlusNotifier(BaseNotifier):
+    """PushPlus (pushplus.plus) — 推送到个人微信（公众号模板消息）。
+
+    Setup: 用户在 pushplus.plus 扫码关注公众号 → 拿到 token → 填到
+    config.yaml。免费 200 条/天。
+    API: https://www.pushplus.plus/doc/guide/apiGuide.html
+    """
+    ENDPOINT = "http://www.pushplus.plus/send"
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.pushplus_config = self.config.get('notification', {}).get('pushplus', {})
+
+    def send_notification(self, title: str, message: str, tags: str = "",
+                         priority: str = "default") -> bool:
+        token = self.pushplus_config.get('token', '')
+        template = self.pushplus_config.get('template', 'markdown')
+        timeout = self.pushplus_config.get('timeout', 5)
+
+        if not token:
+            print("[ERROR] PushPlus 配置错误：token 未配置")
+            return False
+
+        payload = {
+            "token": token,
+            "title": title,
+            "content": message,
+            "template": template,
+        }
+
+        try:
+            response = requests.post(
+                self.ENDPOINT,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=timeout,
+            )
+            result = response.json()
+            # PushPlus: code==200 表示成功，其它都是失败
+            if result.get("code") == 200:
+                print("[SUCCESS] PushPlus 通知发送成功")
+                return True
+            print(f"[ERROR] 发送 PushPlus 通知失败: {result}")
+            return False
+        except Exception as e:
+            print(f"[ERROR] 发送 PushPlus 通知时发生错误: {str(e)}")
+            return False
+
+
+class WxPusherNotifier(BaseNotifier):
+    """WxPusher (wxpusher.zjiecode.com) — 推送到个人微信（测试号）。富文本支持。
+
+    Setup: 在 wxpusher.zjiecode.com 创建应用 → 拿 appToken → 用户扫码
+    关注 → 把 uid 加到配置。
+    """
+    DEFAULT_BASE_URL = "https://wxpusher.zjiecode.com"
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.wxpusher_config = self.config.get('notification', {}).get('wxpusher', {})
+
+    def send_notification(self, title: str, message: str, tags: str = "",
+                         priority: str = "default") -> bool:
+        app_token = self.wxpusher_config.get('app_token', '')
+        uids = self.wxpusher_config.get('uids', [])
+        base_url = self.wxpusher_config.get('base_url', self.DEFAULT_BASE_URL).rstrip('/')
+        timeout = self.wxpusher_config.get('timeout', 5)
+
+        if not app_token or not uids:
+            print("[ERROR] WxPusher 配置错误：app_token 或 uids 未配置")
+            return False
+
+        url = f"{base_url}/api/send/message"
+        payload = {
+            "appToken": app_token,
+            "content": message,
+            "summary": title,
+            "contentType": 1,  # 1=HTML
+            "uids": uids,
+        }
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=timeout,
+            )
+            result = response.json()
+            # WxPusher: code==1000 表示成功
+            if result.get("code") == 1000:
+                print("[SUCCESS] WxPusher 通知发送成功")
+                return True
+            print(f"[ERROR] 发送 WxPusher 通知失败: {result}")
+            return False
+        except Exception as e:
+            print(f"[ERROR] 发送 WxPusher 通知时发生错误: {str(e)}")
+            return False
+
+
+class OpenClawCliNotifier(BaseNotifier):
+    """OpenClaw CLI 包装 — 已部署 OpenClaw + ClawBot 插件的个人微信推送。
+
+    Setup:
+      1. npm i -g openclaw@latest  (需要 Node.js 22+)
+      2. 在已绑定 ClawBot 的设备上执行 openclaw channels login 完成绑定
+      3. 把 user_id 填到 config.yaml
+      4. (可选) 配置自定义 cli_path
+
+    Note: 微信 ClawBot 插件目前灰度放量中（iOS 微信 ≥ 8.0.70），
+    未在白名单的微信账号暂时收不到消息。
+    """
+    DEFAULT_CLI = "openclaw"
+    DEFAULT_TIMEOUT = 10
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.openclaw_config = self.config.get('notification', {}).get('openclaw', {})
+
+    def send_notification(self, title: str, message: str, tags: str = "",
+                         priority: str = "default") -> bool:
+        cli_path = self.openclaw_config.get('cli_path', self.DEFAULT_CLI)
+        user_id = self.openclaw_config.get('user_id', '')
+        timeout = self.openclaw_config.get('timeout', self.DEFAULT_TIMEOUT)
+        body = f"{title}\n{message}" if title else message
+
+        if not user_id:
+            print("[ERROR] OpenClaw 配置错误：user_id 未配置")
+            return False
+
+        # `openclaw send <user> --message <text>` 风格调用。
+        # 注意：openclaw CLI 语法可能在后续版本调整；调用失败时给出明确提示。
+        cmd = [cli_path, "send", user_id, "--message", body]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                print("[SUCCESS] OpenClaw 通知发送成功")
+                return True
+            print(
+                f"[ERROR] OpenClaw 返回非零退出码 {result.returncode}: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+            return False
+        except FileNotFoundError:
+            print(
+                f"[ERROR] 未找到 OpenClaw CLI: {cli_path}。"
+                f"请先运行 `npm i -g openclaw@latest`（需 Node.js 22+）"
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            print(f"[ERROR] OpenClaw CLI 调用超时（>{timeout}s）")
+            return False
+        except Exception as e:
+            print(f"[ERROR] 调用 OpenClaw CLI 时发生错误: {str(e)}")
+            return False
+
+
 def _load_config_data(config_path: Optional[str] = None):
     """加载配置文件数据"""
     config_paths = []
@@ -360,6 +527,12 @@ def get_notifier(config_path: Optional[str] = None) -> BaseNotifier:
             notifiers.append(FeishuNotifier(config))
         if 'wecom' in active_providers or 'wechat' in active_providers:
             notifiers.append(WeComNotifier(config))
+        if 'pushplus' in active_providers:
+            notifiers.append(PushPlusNotifier(config))
+        if 'wxpusher' in active_providers:
+            notifiers.append(WxPusherNotifier(config))
+        if 'openclaw' in active_providers or 'clawbot' in active_providers:
+            notifiers.append(OpenClawCliNotifier(config))
             
         if len(notifiers) == 1:
             _notifier_instance = notifiers[0]
