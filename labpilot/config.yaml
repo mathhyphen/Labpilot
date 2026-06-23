@@ -31,6 +31,7 @@ ai:
 #   dingtalk, feishu, wecom, ntfy,
 #   pushplus, wxpusher  (个人微信推送)
 #   openclaw           (个人微信 — 需要 OpenClaw + ClawBot 插件)
+#   qq                 (QQ 机器人 — go-cqhttp / Lagrange.OneBot 兼容接口)
 # =========================================================================================
 notification:
   active: []
@@ -99,6 +100,21 @@ notification:
     cli_path: "openclaw"
     user_id: ""  # 微信用户的 user_id
     timeout: 10
+
+  # qq:
+  #   # QQ 机器人配置（go-cqhttp / Lagrange.OneBot 兼容的 OneBot HTTP 接口）
+  #   # 前置条件:
+  #   #   - 部署 go-cqhttp 或 Lagrange.OneBot，开启 HTTP 通信
+  #   #   - 在服务端设置 access_token，并记录 HTTP 监听地址
+  #   # base_url: OneBot HTTP 监听地址；access_token: 上报 token
+  #   # user_id: 接收私聊的 QQ 号；group_id: 接收群消息的群号（二选一）
+  #   # auto_escape: 是否对消息内容做 CQ 码转义
+  #   base_url: "http://127.0.0.1:5700"
+  #   access_token: ""
+  #   user_id: ""
+  #   group_id: ""
+  #   auto_escape: false
+  #   timeout: 5
 
 # =========================================================================================
 # 数据库配置

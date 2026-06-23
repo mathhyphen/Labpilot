@@ -1,38 +1,59 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# LabPilot Dockerfile.
+#
+# Best-practice image:
+#   * Non-root runtime user (labpilot).
+#   * Dependency layer cached on pyproject.toml/README only — editing
+#     *.py does NOT re-resolve dependencies.
+#   * Non-editable production install (no [dev] extras, no -e).
+#   * HEALTHCHECK polls the FastAPI root endpoint.
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+FROM python:3.11-slim
 
-# Set work directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LABPILOT_DB_PATH=/data/labpilot.db \
+    # api/ is a namespace package (no __init__.py) and is not picked up
+    # by setuptools' package finder, so it is not installed into
+    # site-packages. Keeping the source tree on PYTHONPATH lets both
+    # `api.main` and the package-shipped config.yaml resolve at runtime
+    # under a non-editable install.
+    PYTHONPATH=/app/labpilot
+
 WORKDIR /app
 
-# Install system dependencies
+# sqlite3 CLI: ad-hoc DB inspection. git: snapshot support.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        sqlite3 \
-        curl \
-        bash \
-        git \
+    && apt-get install -y --no-install-recommends sqlite3 git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
+# --- Dependency layer (cached unless pyproject.toml / README change) ---
+# Copy only build metadata. A throwaway package stub lets `pip install .`
+# build a wheel and resolve [project].dependencies without the real
+# source, so source edits never invalidate the dependency layer.
+COPY pyproject.toml README.md ./
+RUN mkdir -p labpilot/labpilot \
+    && touch labpilot/labpilot/__init__.py \
+    && pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# --- Source layer ---
+COPY labpilot/ ./labpilot/
 
-# Copy the rest of the application
-COPY . .
+# Non-editable production install of the real package. Dependencies are
+# already satisfied above; --no-deps keeps this layer fast and bound to
+# source changes only.
+RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
-# Make the labrun script executable
-RUN chmod +x labrun
-RUN chmod +x notify.sh
-RUN chmod +x git-snapshot.sh
+# Non-root runtime user. /data holds the persistent SQLite database.
+RUN useradd --create-home --shell /bin/bash labpilot \
+    && mkdir -p /data \
+    && chown -R labpilot:labpilot /app /data
+USER labpilot
 
-# Expose port for the web interface
+VOLUME ["/data"]
 EXPOSE 8000
 
-# Run the application
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(chr(104)+chr(116)+chr(116)+chr(112)+chr(58)+chr(47)+chr(47)+chr(108)+chr(111)+chr(99)+chr(97)+chr(108)+chr(104)+chr(111)+chr(115)+chr(116)+chr(58)+chr(56)+chr(48)+chr(48)+chr(48)+chr(47)).status==200 else 1)"
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

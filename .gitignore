@@ -19,6 +19,9 @@ testing_ground/
 testing_zhipu/
 .pytest_cache/
 .coverage
+coverage.xml
+.ruff_cache/
+.mypy_cache/
 
 # IDEs
 .vscode/

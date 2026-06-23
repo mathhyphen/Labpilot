@@ -3,6 +3,7 @@
 Most of cli.py is a thin wrapper around subprocess.Popen, which is hard to
 test without spawning real children. We test the small helpers directly.
 """
+
 import unittest
 from unittest.mock import MagicMock
 

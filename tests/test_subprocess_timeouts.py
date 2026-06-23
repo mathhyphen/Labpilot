@@ -10,10 +10,11 @@ executed by each tested function. This is a behavioral assertion: even
 if a future refactor changes the order of kwargs, the test fails if
 ``timeout`` is missing.
 """
+
 import os
 import subprocess
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def _completed_proc(returncode=0, stdout="", stderr=""):
@@ -49,6 +50,7 @@ class GitUtilsSubprocessTimeoutTests(unittest.TestCase):
     @patch("labpilot.git_utils.subprocess.run")
     def test_is_git_repo_passes_timeout(self, run):
         from labpilot.git_utils import GitUtils
+
         run.return_value = _completed_proc(returncode=0)
         GitUtils().is_git_repo()
         self._assert_timeout(run.call_args_list, "is_git_repo")
@@ -56,10 +58,11 @@ class GitUtilsSubprocessTimeoutTests(unittest.TestCase):
     @patch("labpilot.git_utils.subprocess.run")
     def test_get_git_info_passes_timeout(self, run):
         from labpilot.git_utils import GitUtils
+
         run.side_effect = [
-            _completed_proc(stdout=".git\n"),       # is_git_repo
-            _completed_proc(stdout="abc123\n"),    # rev-parse HEAD
-            _completed_proc(stdout="msg\n"),       # log -1
+            _completed_proc(stdout=".git\n"),  # is_git_repo
+            _completed_proc(stdout="abc123\n"),  # rev-parse HEAD
+            _completed_proc(stdout="msg\n"),  # log -1
         ]
         GitUtils().get_git_info()
         self._assert_timeout(run.call_args_list, "get_git_info")
@@ -67,6 +70,7 @@ class GitUtilsSubprocessTimeoutTests(unittest.TestCase):
     @patch("labpilot.git_utils.subprocess.run")
     def test_is_dirty_passes_timeout(self, run):
         from labpilot.git_utils import GitUtils
+
         run.side_effect = [
             _completed_proc(stdout=".git\n"),
             _completed_proc(stdout=""),
@@ -77,6 +81,7 @@ class GitUtilsSubprocessTimeoutTests(unittest.TestCase):
     @patch("labpilot.git_utils.subprocess.run")
     def test_get_dirty_files_passes_timeout(self, run):
         from labpilot.git_utils import GitUtils
+
         run.side_effect = [
             _completed_proc(stdout=".git\n"),
             _completed_proc(stdout=""),
@@ -91,6 +96,7 @@ class CliSubprocessTimeoutTests(unittest.TestCase):
     @patch("labpilot.cli.subprocess.run")
     def test_get_free_gpus_passes_timeout(self, run):
         from labpilot.cli import get_free_gpus
+
         run.return_value = _completed_proc(
             stdout="0, 8192\n1, 4096\n",
             returncode=0,

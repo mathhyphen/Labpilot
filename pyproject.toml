@@ -1,0 +1,129 @@
+# pyproject.toml — modern build + tool config for LabPilot.
+#
+# Replaces the per-tool config that used to live in setup.py,
+# ruff.toml, mypy.ini, .pre-commit-config.yaml, etc. Putting every
+# tool's config here means a contributor can read the whole project
+# contract from one file.
+#
+# Review finding L4 / C.4.
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labpilot"
+version = "2.2.0"
+description = "AI 实验管理与通知中心 - 轻量级实验跟踪工具"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "LabPilot Team", email = "labpilot@example.com" }]
+keywords = [
+    "machine-learning",
+    "deep-learning",
+    "experiment-tracking",
+    "research",
+    "ai",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "pydantic==2.5.0",
+    # Security-patched libs use ``>=`` lower bounds so transitive
+    # fixes (CVEs in urllib3 / certifi pulled by requests, and the
+    # PyYAML 6.0.x hardening) are picked up without a re-pin.
+    "PyYAML>=6.0.1",
+    "requests>=2.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+labrun = "labpilot.cli:main"
+labpilot = "labpilot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mathhyphen/Labpilot"
+Repository = "https://github.com/mathhyphen/Labpilot.git"
+
+[tool.setuptools.packages.find]
+where = ["labpilot"]
+
+[tool.setuptools.package-data]
+labpilot = ["*.yaml", "*.md", "web/templates/*.html", "web/static/*.js"]
+
+# ---------------------------------------------------------------------------
+# Ruff (linter + formatter, replaces black/flake8/isort).
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["dist", "build", ".eggs", "labpilot.egg-info"]
+
+[tool.ruff.lint]
+# Conservative baseline; the project isn't fully typed yet so E/F/W
+# are the high-signal ones. Add the rest as the codebase matures.
+select = ["E", "F", "W", "I"]  # pycodestyle + pyflakes + pycodestyle-warnings + isort
+ignore = [
+    "E501",  # line length — leave to formatter / human eye
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests frequently use long mock chains and small magic numbers.
+"tests/*" = ["E402", "F401", "F811"]
+# Notify package has a lot of print-friendly surface; relax.
+"labpilot/notify/*.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["labpilot"]
+
+# ---------------------------------------------------------------------------
+# mypy (static type checking).
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.9"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false  # too noisy on a partially-typed codebase
+ignore_missing_imports = true  # we don't vendor type stubs
+disable_error_code = ["import-untyped"]  # requests ships no stubs; ignore_missing_imports doesn't suppress this code in mypy 1.20+
+disallow_untyped_defs = false  # too strict for now; can be tightened later
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["labpilot"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=labpilot",
+    "--cov=api",
+    "--cov-report=term-missing",
+    "--cov-report=xml:coverage.xml",
+    "--cov-fail-under=60",
+]

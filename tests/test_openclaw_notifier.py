@@ -6,6 +6,7 @@ is a thin wrapper around ``openclaw send <user_id> --message <text>``
 so users with an existing OpenClaw deployment can route experiment
 notifications to their personal WeChat.
 """
+
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
@@ -23,11 +24,7 @@ def _completed(returncode=0, stdout="", stderr=""):
 
 class OpenClawCliNotifierTests(unittest.TestCase):
     def _notifier(self, **cfg):
-        return OpenClawCliNotifier({
-            "notification": {
-                "openclaw": {"user_id": "user-x", **cfg}
-            }
-        })
+        return OpenClawCliNotifier({"notification": {"openclaw": {"user_id": "user-x", **cfg}}})
 
     @patch("labpilot.notify.subprocess.run")
     def test_calls_openclaw_send_with_user_and_message(self, run):
@@ -45,6 +42,7 @@ class OpenClawCliNotifierTests(unittest.TestCase):
         args, kwargs = run.call_args
         cmd = args[0]
         import os
+
         self.assertTrue(
             os.path.basename(cmd[0]).lower().startswith("openclaw"),
             f"cmd[0]={cmd[0]!r} should resolve to an openclaw binary",
@@ -77,6 +75,29 @@ class OpenClawCliNotifierTests(unittest.TestCase):
         self.assertEqual(args[0][0], custom_path)
 
     @patch("labpilot.notify.subprocess.run")
+    def test_uses_custom_cli_path_when_isfile_works_on_windows(self, run):
+        """Regression: on Windows, ``os.path.isabs("/opt/x")`` returns
+        False so the old code fell through to ``shutil.which`` and
+        rejected the path even when the file existed. The new resolver
+        must check ``os.path.isfile`` first regardless of whether the
+        path looks absolute to the host OS.
+        """
+        run.return_value = _completed(returncode=0)
+        # An absolute-looking path that on Windows ``os.path.isabs``
+        # would still consider non-absolute (no drive letter). We patch
+        # ``isabs`` to return False explicitly to simulate the
+        # cross-platform mismatch.
+        custom_path = "/opt/openclaw/bin/openclaw"
+        notifier = self._notifier(cli_path=custom_path)
+        with (
+            patch("labpilot.notify.os.path.isfile", return_value=True),
+            patch("labpilot.notify.os.path.isabs", return_value=False),
+        ):
+            notifier.send_notification("t", "m")
+        args, _ = run.call_args
+        self.assertEqual(args[0][0], custom_path)
+
+    @patch("labpilot.notify.subprocess.run")
     def test_uses_configured_timeout(self, run):
         run.return_value = _completed(returncode=0)
         notifier = self._notifier(timeout=7)
@@ -85,9 +106,7 @@ class OpenClawCliNotifierTests(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 7)
 
     def test_missing_user_id_returns_false_without_calling_cli(self):
-        notifier = OpenClawCliNotifier({
-            "notification": {"openclaw": {}}
-        })
+        notifier = OpenClawCliNotifier({"notification": {"openclaw": {}}})
         # No CLI invocation should be attempted.
         with patch("labpilot.notify.subprocess.run") as run:
             self.assertFalse(notifier.send_notification("t", "m"))
@@ -120,27 +139,31 @@ class OpenClawCliNotifierTests(unittest.TestCase):
         ``~/.labpilot.yaml`` from turning every labrun into a silent
         arbitrary-execution vector.
         """
-        notifier = OpenClawCliNotifier({
-            "notification": {
-                "openclaw": {
-                    "user_id": "u1",
-                    "cli_path": "/bin/rm",
+        notifier = OpenClawCliNotifier(
+            {
+                "notification": {
+                    "openclaw": {
+                        "user_id": "u1",
+                        "cli_path": "/bin/rm",
+                    }
                 }
             }
-        })
+        )
         with patch("labpilot.notify.subprocess.run") as run:
             self.assertFalse(notifier.send_notification("t", "m"))
             run.assert_not_called()
 
     def test_rejects_cli_path_that_does_not_resolve(self):
-        notifier = OpenClawCliNotifier({
-            "notification": {
-                "openclaw": {
-                    "user_id": "u1",
-                    "cli_path": "/nonexistent/openclaw-fake",
+        notifier = OpenClawCliNotifier(
+            {
+                "notification": {
+                    "openclaw": {
+                        "user_id": "u1",
+                        "cli_path": "/nonexistent/openclaw-fake",
+                    }
                 }
             }
-        })
+        )
         with patch("labpilot.notify.subprocess.run") as run:
             self.assertFalse(notifier.send_notification("t", "m"))
             run.assert_not_called()
@@ -151,28 +174,48 @@ class OpenClawCliNotifierTests(unittest.TestCase):
         subprocess.run with list form is safe from shell injection but
         not from argument smuggling, since the CLI parses argv itself.
         """
-        notifier = OpenClawCliNotifier({
-            "notification": {
-                "openclaw": {
-                    "user_id": "--help",
+        notifier = OpenClawCliNotifier(
+            {
+                "notification": {
+                    "openclaw": {
+                        "user_id": "--help",
+                    }
                 }
             }
-        })
+        )
         with patch("labpilot.notify.subprocess.run") as run:
             self.assertFalse(notifier.send_notification("t", "m"))
             run.assert_not_called()
 
     def test_rejects_user_id_with_whitespace(self):
-        notifier = OpenClawCliNotifier({
-            "notification": {
-                "openclaw": {
-                    "user_id": "user one",
+        notifier = OpenClawCliNotifier(
+            {
+                "notification": {
+                    "openclaw": {
+                        "user_id": "user one",
+                    }
                 }
             }
-        })
+        )
         with patch("labpilot.notify.subprocess.run") as run:
             self.assertFalse(notifier.send_notification("t", "m"))
             run.assert_not_called()
+
+    @patch("labpilot.notify.subprocess.run")
+    def test_os_error_during_exec_returns_false(self, run):
+        """OSError from subprocess.run must surface as False, not crash.
+
+        Regression for the broken diagnostic that logged
+        ``type(__import__("builtins").Exception).__name__`` (the
+        literal "type") instead of the real exception class. We patch
+        ``os.path.isfile`` so ``_resolve_cli`` accepts the configured
+        path and execution reaches ``subprocess.run``, which then
+        raises OSError.
+        """
+        run.side_effect = OSError("exec failed")
+        notifier = self._notifier(cli_path="/opt/openclaw/bin/openclaw")
+        with patch("labpilot.notify.os.path.isfile", return_value=True):
+            self.assertFalse(notifier.send_notification("t", "m"))
 
 
 if __name__ == "__main__":

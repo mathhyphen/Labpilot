@@ -10,8 +10,8 @@ LabPilot is a minimalist experiment management tool designed for deep learning r
 
 - **🤖 AI-Powered Git**: Uses MiniMax or any OpenAI-compatible LLM to summarize script changes and create scoped snapshots before experiments.
 - **📊 Auto Tracking**: Records commands, parameters, timestamps, Git commits, and execution results automatically.
-- **🔍 GPU Detection**: Automatically detects available GPUs and records GPU information (NVIDIA, AMD) for better experiment context.
-- **📱 Real-time Notifications**: Supports **DingTalk**, **ntfy**, **Feishu/Lark**, **WeCom/WeChat Work**, **PushPlus**, **WxPusher** (personal WeChat), and **OpenClaw** (personal WeChat via Tencent's official ClawBot plugin).
+- **🔍 GPU Detection**: Automatically detects available GPUs and records GPU information (NVIDIA; AMD not supported) for better experiment context.
+- **📱 Real-time Notifications**: Supports **DingTalk**, **ntfy**, **Feishu/Lark**, **WeCom/WeChat Work**, **PushPlus**, **WxPusher** (personal WeChat), **OpenClaw** (personal WeChat via Tencent's official ClawBot plugin), and **QQ via OneBot** (self-hosted bot).
 - **🧹 Scoped Git Snapshots**: When running a script, LabPilot only commits the entry script and related local Python dependencies, leaving unrelated work untouched.
 - **🌐 Multi-Server Support**: Custom server names for centralized management of experiments across multiple machines.
 - **⚡️ Zero Intrusion**: Just prepend `labrun` to your command. No code modification required.
@@ -23,8 +23,10 @@ LabPilot is a minimalist experiment management tool designed for deep learning r
 ```bash
 git clone https://github.com/mathhyphen/Labpilot.git
 cd Labpilot
-pip install -e .
+pip install -e ".[dev]"
 ```
+
+The dev extras add `pytest`, `pytest-cov`, `ruff`, and `mypy` so you can run the test suite and the linter locally. For a runtime-only install, drop the `[dev]`.
 
 Or download the latest source distribution from [GitHub Releases](https://github.com/mathhyphen/Labpilot/releases/latest).
 
@@ -48,7 +50,7 @@ ai:
 
 # Notification Configuration
 notification:
-  active: [dingtalk] # or [feishu, pushplus, wxpusher, openclaw, ...]
+  active: [dingtalk] # or [feishu, pushplus, wxpusher, openclaw, qq, onebot, ...]
   dingtalk:
     webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=..."
 ```
@@ -152,6 +154,23 @@ notification:
 
 Prerequisites: Node.js 22+, `npm i -g openclaw@latest`, WeChat iOS ≥ 8.0.70 / Android ≥ 8.0.69, enable ClawBot in *Me → Settings → Plugins*. The plugin is in gradual rollout; not all accounts have access yet.
 
+### QQ via OneBot (self-hosted bot)
+
+Push to a QQ account or group through a self-hosted OneBot v11 implementation. Both `qq` and `onebot` are valid `active:` names.
+
+```yaml
+notification:
+  active: [qq]  # or [onebot]
+  qq:
+    base_url: "http://127.0.0.1:5700"   # your OneBot v11 HTTP endpoint
+    access_token: "your-access-token"    # bearer token configured in the bot
+    user_id: "123456789"                 # private-message target (omit for group)
+    group_id: "987654321"                # group-message target (omit for private)
+    auto_escape: true                    # render the message as plain text
+```
+
+Prerequisite: a self-hosted Lagrange.OneBot or go-cqhttp instance exposing the OneBot v11 HTTP API.
+
 ### MiniMax Token Plan API
 
 Set `LABPILOT_AI_API_KEY` or `MINIMAX_API_KEY` in your shell instead of committing it to config files. The dashboard API exposes a sanitized config check at:
@@ -190,10 +209,60 @@ labrun python train.py
 labrun --wait-gpu 12g --timeout 3600 python train.py
 ```
 
-## 📊 Web Dashboard
+## 📊 JSON API / Dashboard Backend
 
-Launch the built-in web dashboard to view experiment history:
+Launch the built-in HTTP API to query experiment history. It serves JSON only — there are no mounted HTML or static-file routes, so point your own dashboard or script at the endpoints below:
 
 ```bash
+# Without auth (local-only usage)
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+# With API key auth (recommended when exposing to a network)
+export LABPILOT_API_KEY="$(openssl rand -hex 32)"
 uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
+
+The API reads from the same SQLite database the CLI writes to. See the endpoints below for the schema; once `LABPILOT_API_KEY` is set, all write endpoints require `X-API-Key: <key>` (or `Authorization: Bearer <key>`).
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET`  | `/`                       | Liveness probe |
+| `GET`  | `/ai/token-plan`          | Sanitised AI provider config (no secrets) |
+| `GET`  | `/experiments`            | List experiments (supports `?status=`, `?server=`, `?search=`, `?skip=`, `?limit=`) |
+| `POST` | `/experiments`            | Insert a new `running` experiment |
+| `GET`  | `/experiments/{id}`       | Fetch a single experiment |
+| `PUT`  | `/experiments/{id}`       | Update an experiment (end_time, status, log_snippet, …) |
+| `DELETE` | `/experiments/{id}`     | Hard-delete an experiment |
+| `GET`  | `/experiments/stats`      | Aggregate counts (total, by status, by server, last 24 h) |
+
+## 🛡️ Security
+
+- **API key auth** (v2.2.0+): `LABPILOT_API_KEY` env var gates all reads and writes. Comparison via `hmac.compare_digest`. Default-secure — no key ⇒ all writes return 401, reads stay open for local use.
+- **Webhook retry** (v2.2.0+): JSON webhook notifiers retry transient network errors and 5xx with exponential backoff. 4xx is never retried.
+- **Webhook URL allowlisting** (v2.2.0+): DingTalk / Feishu / WeCom / ntfy webhook URLs are validated for scheme (`https`, or `http` only for self-hosted ntfy/OneBot) and a fixed host allowlist, preventing SSRF and credential capture.
+- **Subprocess timeouts** (v2.1.0+): every `subprocess.run` carries `timeout=30 s` so a hung `git` or `nvidia-smi` cannot block `labrun` indefinitely.
+- **SQLite resilience** (v2.2.0+): every connection opens in WAL mode with a 5 s busy timeout. Concurrent labrun writes + dashboard reads are now safe.
+- **OpenClaw `cli_path`** is restricted to binaries whose basename starts with `openclaw` and that exist on disk. `user_id` is rejected if it starts with `-` or contains whitespace (argument smuggling).
+- **WxPusher `base_url`** is allowlisted to `wxpusher.zjiecode.com` (no SSRF abuse).
+- **PushPlus endpoint** is hardcoded to HTTPS (the request body carries the user's PushPlus token).
+
+## 🧪 Development
+
+```bash
+# Run the test suite
+python -m pytest
+
+# With coverage (60 % gate)
+python -m pytest  # already wired via pyproject.toml
+
+# Lint
+ruff check .
+ruff format --check .
+
+# Type-check
+mypy labpilot/labpilot labpilot/api
+```
+
+CI runs on every push via `.github/workflows/ci.yml` (lint + typecheck + tests on Ubuntu + Windows × Python 3.9 – 3.12).

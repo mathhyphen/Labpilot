@@ -3,117 +3,110 @@ LabPilot Git 工具模块
 处理 Git 相关操作
 """
 
-import subprocess
-import os
-import yaml
-import requests
-import json
 import ast
-from typing import Tuple, Optional, List, Set
-
+import logging
+import os
+import subprocess
 import time
+from typing import List, Optional, Set, Tuple
+
+import requests
+
+from .config import load_config as _load_unified_config
+
+logger = logging.getLogger(__name__)
 
 # Default timeout for every git / nvidia-smi subprocess invocation. Without
 # this, a hung child (driver bug, NFS stall, frozen git process) could
 # block labrun indefinitely. See tests/test_subprocess_timeouts.py.
 DEFAULT_SUBPROCESS_TIMEOUT = 30
 
+
+class GitRequireCleanError(Exception):
+    """仓库有未提交改动且 git.require_clean 为 True 时抛出。"""
+
+
 class GitUtils:
     def __init__(self, config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
-        self.git_config = self.config.get('git', {})
-        self.ai_config = self.config.get('ai', {})
+        self.git_config = self.config.get("git", {})
+        self.ai_config = self.config.get("ai", {})
 
     def _load_config(self, config_path: Optional[str] = None):
-        """加载配置文件"""
-        config_paths = []
-        
-        if config_path:
-            config_paths.append(config_path)
-        
-        config_paths.extend([
-            os.path.join(os.getcwd(), ".labpilot.yaml"),
-            os.path.expanduser("~/.labpilot.yaml"),
-            os.path.join(os.path.dirname(__file__), "..", "config.yaml")
-        ])
-        
-        config = {}
-        for path in config_paths:
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    config = yaml.safe_load(f)
-                break
-        
-        # 设置默认值
+        """加载配置文件 (review finding C3: delegates to unified loader)."""
+        if config_path is not None:
+            config = _load_unified_config(explicit_path=config_path)
+        else:
+            config = _load_unified_config()
         if not config:
-            config = {
-                'git': {
-                    'auto_snapshot': True,
-                    'require_clean': False
-                }
-            }
-        
+            # Preserve the original behaviour: empty config gets a
+            # sensible git-block default so callers that read
+            # ``config['git']['auto_snapshot']`` don't KeyError.
+            config = {"git": {"auto_snapshot": True, "require_clean": False}}
         return config
-    
+
     def is_git_repo(self) -> bool:
         """检查当前目录是否为 Git 仓库"""
         try:
             result = subprocess.run(
-                ['git', 'rev-parse', '--git-dir'],
+                ["git", "rev-parse", "--git-dir"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return result.returncode == 0
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("is_git_repo failed", exc_info=True)
             return False
-    
+
     def get_git_info(self) -> Tuple[str, str]:
         """获取 Git 信息 (commit_hash, commit_message)"""
         if not self.is_git_repo():
             return "not-a-git-repo", "not-a-git-repo"
-        
+
         try:
             # 获取当前 commit hash
             result = subprocess.run(
-                ['git', 'rev-parse', 'HEAD'],
+                ["git", "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             commit_hash = result.stdout.strip() if result.returncode == 0 else "unknown"
-            
+
             # 获取 commit message
             result = subprocess.run(
-                ['git', 'log', '-1', '--pretty=%s'],
+                ["git", "log", "-1", "--pretty=%s"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             commit_message = result.stdout.strip() if result.returncode == 0 else "unknown"
-            
+
             return commit_hash, commit_message
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("get_git_info failed", exc_info=True)
             return "unknown", "unknown"
-    
+
     def is_dirty(self) -> bool:
         """检查 Git 仓库是否有未提交的更改"""
         if not self.is_git_repo():
             return False
-        
+
         try:
             result = subprocess.run(
-                ['git', 'status', '--porcelain'],
+                ["git", "status", "--porcelain"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return len(result.stdout.strip()) > 0
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("is_dirty failed", exc_info=True)
             return False
 
     def get_dirty_files(self) -> List[str]:
@@ -123,7 +116,7 @@ class GitUtils:
 
         try:
             result = subprocess.run(
-                ['git', 'status', '--porcelain'],
+                ["git", "status", "--porcelain"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
@@ -137,12 +130,13 @@ class GitUtils:
                 if not line.strip():
                     continue
                 path = line[3:].strip()
-                if ' -> ' in path:
-                    path = path.split(' -> ', 1)[1].strip()
+                if " -> " in path:
+                    path = path.split(" -> ", 1)[1].strip()
                 if path:
-                    files.append(path.replace('\\', '/'))
+                    files.append(path.replace("\\", "/"))
             return files
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("get_dirty_files failed", exc_info=True)
             return []
 
     def get_related_dirty_files(self, script_file: str) -> List[str]:
@@ -152,53 +146,72 @@ class GitUtils:
             return []
 
         related_files = self._collect_local_python_dependencies(script_file)
-        related_files.add(os.path.relpath(script_file, os.getcwd()).replace('\\', '/'))
+        related_files.add(os.path.relpath(script_file, os.getcwd()).replace("\\", "/"))
         return sorted(path for path in related_files if path in dirty_files)
 
     def _collect_local_python_dependencies(self, script_file: str) -> Set[str]:
         """静态解析入口脚本导入的本地 Python 文件。"""
         root = os.getcwd()
+        root_abs = os.path.abspath(root)
+        root_real = os.path.realpath(root)
         visited = set()
         related = set()
 
         def relpath(path: str) -> str:
-            return os.path.relpath(path, root).replace('\\', '/')
+            return os.path.relpath(path, root).replace("\\", "/")
 
         def resolve_module(module_name: str, base_dir: str) -> Optional[str]:
             if not module_name:
                 return None
 
-            parts = module_name.split('.')
+            parts = module_name.split(".")
             candidates = [
-                os.path.join(base_dir, *parts) + '.py',
-                os.path.join(root, *parts) + '.py',
-                os.path.join(base_dir, *parts, '__init__.py'),
-                os.path.join(root, *parts, '__init__.py'),
+                os.path.join(base_dir, *parts) + ".py",
+                os.path.join(root, *parts) + ".py",
+                os.path.join(base_dir, *parts, "__init__.py"),
+                os.path.join(root, *parts, "__init__.py"),
             ]
-            root_abs = os.path.abspath(root)
             for candidate in candidates:
                 candidate_abs = os.path.abspath(candidate)
-                if os.path.exists(candidate_abs) and os.path.commonpath([root_abs, candidate_abs]) == root_abs:
+                candidate_real = os.path.realpath(candidate_abs)
+                if (
+                    os.path.exists(candidate_abs)
+                    and os.path.commonpath([root_real, candidate_real]) == root_real
+                ):
                     return candidate_abs
             return None
 
         def visit(path: str):
             abs_path = os.path.abspath(path)
-            if abs_path in visited or not abs_path.endswith('.py') or not os.path.exists(abs_path):
+            if abs_path in visited or not abs_path.endswith(".py") or not os.path.exists(abs_path):
                 return
 
             visited.add(abs_path)
             related.add(relpath(abs_path))
 
+            # Also pick up any parent package ``__init__.py`` so the
+            # snapshot includes the full package context, not just
+            # the leaf module.
+            parent = os.path.dirname(abs_path)
+            while parent and os.path.commonpath([parent, root_abs]) == root_abs:
+                init = os.path.join(parent, "__init__.py")
+                if os.path.isfile(init):
+                    init_abs = os.path.abspath(init)
+                    if init_abs not in visited:
+                        visited.add(init_abs)
+                        related.add(relpath(init_abs))
+                parent = os.path.dirname(parent)
+
             try:
-                with open(abs_path, 'r', encoding='utf-8') as f:
+                with open(abs_path, "r", encoding="utf-8") as f:
                     tree = ast.parse(f.read())
-            except Exception:
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                logger.debug("failed to parse %s", abs_path, exc_info=True)
                 return
 
             base_dir = os.path.dirname(abs_path)
             for node in ast.walk(tree):
-                module_names = []
+                module_names: list[str] = []
                 if isinstance(node, ast.Import):
                     module_names.extend(alias.name for alias in node.names)
                 elif isinstance(node, ast.ImportFrom) and node.module:
@@ -211,22 +224,22 @@ class GitUtils:
 
         visit(script_file)
         return related
-    
+
     def get_diff(self, specific_files: Optional[list] = None) -> str:
         """获取 Git 差异"""
         if not self.is_git_repo():
             return ""
-        
+
         try:
             # 构造命令基础
-            cmd_staged = ['git', 'diff', '--cached']
-            cmd_working = ['git', 'diff']
-            
+            cmd_staged = ["git", "diff", "--cached"]
+            cmd_working = ["git", "diff"]
+
             # 如果指定了文件，只获取这些文件的差异
             if specific_files:
-                cmd_staged.extend(specific_files)
-                cmd_working.extend(specific_files)
-            
+                cmd_staged.extend(["--"] + specific_files)
+                cmd_working.extend(["--"] + specific_files)
+
             # 获取暂存区差异
             result_staged = subprocess.run(
                 cmd_staged,
@@ -244,40 +257,45 @@ class GitUtils:
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
-            
+
             diff = ""
             if result_staged.returncode == 0:
                 diff += result_staged.stdout
             if result_working.returncode == 0:
                 diff += result_working.stdout
-                
+
             return diff
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("get_diff failed", exc_info=True)
             return ""
 
     def generate_ai_commit_message(self, diff: str) -> Optional[str]:
         """使用 AI 生成提交信息"""
         if not diff or not self.ai_config:
             return None
-            
-        api_key = self._get_ai_setting('api_key', env_names=['LABPILOT_AI_API_KEY', 'MINIMAX_API_KEY'])
-        base_url = self._get_ai_setting('base_url', 'https://api.minimaxi.com/v1')
-        model = self._get_ai_setting('model', 'MiniMax-M2.7-highspeed')
-        
+
+        api_key = self._get_ai_setting(
+            "api_key", env_names=["LABPILOT_AI_API_KEY", "MINIMAX_API_KEY"]
+        )
+        base_url = self._get_ai_setting("base_url", "https://api.minimaxi.com/v1")
+        model = self._get_ai_setting("model", "MiniMax-M2.7-highspeed")
+
         if not api_key:
             return None
-            
+
         # 限制 Diff 长度，防止超过 token 限制
-        max_len = int(self._get_ai_setting('max_diff_chars', 3000))
+        max_len = int(self._get_ai_setting("max_diff_chars", 3000))
         if len(diff) > max_len:
             diff = diff[:max_len] + "\n... (truncated)"
-            
+
         # 获取超时设置，默认为 120 秒
-        timeout = self._get_ai_setting('timeout', 120)
-        
+        timeout = self._get_ai_setting("timeout", 120)
+
         # 获取语言设置，默认为中文
-        language = self._get_ai_setting('language', 'zh-CN')
-        lang_instruction = "请使用简体中文回复。" if language == 'zh-CN' else f"Please respond in {language}."
+        language = self._get_ai_setting("language", "zh-CN")
+        lang_instruction = (
+            "请使用简体中文回复。" if language == "zh-CN" else f"Please respond in {language}."
+        )
 
         prompt = f"""
         {lang_instruction}
@@ -286,71 +304,82 @@ class GitUtils:
         1. 第一行：简短总结，不超过 50 个字符，建议使用 conventional commit 风格
         2. 第二行：空行
         3. 第三行开始：总结脚本行为或实验逻辑的关键变动
-        
+
         代码变动：
         {diff}
         """
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
+
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": "你是一个专业的代码提交助手。"},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            "temperature": 0.7
+            "temperature": 0.7,
         }
-        
+
         try:
             # 处理 base_url，确保它指向 /chat/completions
-            if not base_url.endswith('/chat/completions'):
-                if base_url.endswith('/'):
+            if not base_url.endswith("/chat/completions"):
+                if base_url.endswith("/"):
                     url = f"{base_url}chat/completions"
                 else:
                     url = f"{base_url}/chat/completions"
             else:
                 url = base_url
-            
+
             # 添加重试机制
             max_retries = 3
             retry_delay = 2  # 初始等待2秒
-            
+
             for attempt in range(max_retries):
                 try:
                     response = requests.post(url, headers=headers, json=payload, timeout=timeout)
-                    
+
                     if response.status_code == 200:
                         result = response.json()
-                        content = result['choices'][0]['message']['content']
+                        content = result["choices"][0]["message"]["content"]
                         return content.strip()
                     elif response.status_code == 429:
                         if attempt < max_retries - 1:
-                            print(f"[WARN] AI API Rate Limit (429). Retrying in {retry_delay}s...")
+                            logger.warning(
+                                "AI API rate limited (429); retrying in %ss", retry_delay
+                            )
                             time.sleep(retry_delay)
                             retry_delay *= 2  # 指数退避
                             continue
                         else:
-                            print(f"[ERROR] AI API Rate Limit (429) after {max_retries} retries: {response.text}")
+                            logger.error(
+                                "AI API rate limited (429) after %s retries: %s",
+                                max_retries,
+                                response.text[:200],
+                            )
                             return None
                     else:
-                        print(f"[ERROR] AI API Error: {response.status_code} - {response.text}")
+                        logger.error(
+                            "AI API error: %s - %s",
+                            response.status_code,
+                            response.text[:200],
+                        )
                         return None
                 except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                     if attempt < max_retries - 1:
-                        print(f"[WARN] AI API Network Error ({type(e).__name__}). Retrying in {retry_delay}s...")
+                        logger.warning(
+                            "AI API network error (%s); retrying in %ss",
+                            type(e).__name__,
+                            retry_delay,
+                        )
                         time.sleep(retry_delay)
                         retry_delay *= 2
                         continue
                     raise
-                    
+
             return None
-                
+
         except Exception as e:
-            print(f"[WARN] AI Request Failed (timeout={timeout}s): {e}")
+            logger.warning("AI request failed (timeout=%ss): %s", timeout, e)
             return None
 
     def _get_ai_setting(self, key: str, default=None, env_names: Optional[List[str]] = None):
@@ -367,105 +396,139 @@ class GitUtils:
 
         return self.ai_config.get(key, default)
 
-    def auto_commit(self, message: str = None, specific_files: Optional[list] = None) -> str:
+    def auto_commit(
+        self, message: Optional[str] = None, specific_files: Optional[list] = None
+    ) -> str:
         """自动提交更改"""
         if not self.is_git_repo():
             return "not-a-git-repo"
-        
+
         if not self.is_dirty():
             # 仓库干净，返回当前 commit hash
             commit_hash, _ = self.get_git_info()
             return commit_hash
-        
+
         # 如果未指定消息，尝试使用 AI 生成
         if message is None:
             # 1. 添加更改到暂存区，以便获取完整的 diff
             try:
                 if specific_files:
-                    subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
+                    subprocess.run(
+                        ["git", "add", "--"] + specific_files,
+                        check=True,
+                        cwd=os.getcwd(),
+                        timeout=DEFAULT_SUBPROCESS_TIMEOUT,
+                    )
                 else:
-                    subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
+                    subprocess.run(
+                        ["git", "add", "."],
+                        check=True,
+                        cwd=os.getcwd(),
+                        timeout=DEFAULT_SUBPROCESS_TIMEOUT,
+                    )
             except subprocess.CalledProcessError:
                 pass
-                
+
             # 2. 获取 Diff
             diff = self.get_diff(specific_files=specific_files)
-            
+
             # 3. 尝试生成 AI 消息
             ai_message = self.generate_ai_commit_message(diff)
-            
+
             if ai_message:
                 message = ai_message
             else:
                 from datetime import datetime
+
                 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                 message = f"Auto-snapshot before experiment run [labpilot-{timestamp}]"
-        
+
         try:
             # 确保再次添加（如果之前没添加成功，或者防止某些情况）
             if specific_files:
-                subprocess.run(['git', 'add'] + specific_files, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
+                subprocess.run(
+                    ["git", "add", "--"] + specific_files,
+                    check=True,
+                    cwd=os.getcwd(),
+                    timeout=DEFAULT_SUBPROCESS_TIMEOUT,
+                )
             else:
-                subprocess.run(['git', 'add', '.'], check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
-            
+                subprocess.run(
+                    ["git", "add", "."],
+                    check=True,
+                    cwd=os.getcwd(),
+                    timeout=DEFAULT_SUBPROCESS_TIMEOUT,
+                )
+
             # 提交更改；指定文件时忽略其他已暂存内容，避免带入无关改动。
-            commit_cmd = ['git', 'commit', '-m', message]
+            commit_cmd = ["git", "commit", "-m", message]
             if specific_files:
-                commit_cmd.extend(['--only', '--'])
+                commit_cmd.extend(["--only", "--"])
                 commit_cmd.extend(specific_files)
-            subprocess.run(commit_cmd, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT)
-            
+            subprocess.run(
+                commit_cmd, check=True, cwd=os.getcwd(), timeout=DEFAULT_SUBPROCESS_TIMEOUT
+            )
+
             # 获取新 commit hash
             commit_hash, _ = self.get_git_info()
-            
+
             return commit_hash
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             # 如果提交失败，返回当前 commit hash
             commit_hash, _ = self.get_git_info()
+            logger.warning("git commit failed (%s); experiment will run against %s", e, commit_hash)
             return commit_hash
-    
+
     def check_and_handle_repo(self, specific_files: Optional[list] = None) -> str:
         """检查并处理仓库状态"""
         if not self.is_git_repo():
             return "not-a-git-repo"
-        
+
         is_dirty = self.is_dirty()
-        
-        if is_dirty and self.git_config.get('require_clean', False):
-            raise Exception("Git repository has uncommitted changes and git.require_clean is true")
-        
-        if is_dirty and self.git_config.get('auto_snapshot', True):
+
+        if is_dirty and self.git_config.get("require_clean", False):
+            raise GitRequireCleanError(
+                "Git repository has uncommitted changes and git.require_clean is true"
+            )
+
+        if is_dirty and self.git_config.get("auto_snapshot", True):
             return self.auto_commit(specific_files=specific_files)
         else:
             commit_hash, _ = self.get_git_info()
             return commit_hash
-    
+
     def get_commit_body(self) -> str:
         """获取完整的 commit message"""
         if not self.is_git_repo():
             return "not-a-git-repo"
-        
+
         try:
             # 获取完整 commit message (subject + body)
             result = subprocess.run(
-                ['git', 'log', '-1', '--pretty=%B'],
+                ["git", "log", "-1", "--pretty=%B"],
                 capture_output=True,
                 text=True,
                 cwd=os.getcwd(),
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )
             return result.stdout.strip() if result.returncode == 0 else "unknown"
-        except Exception:
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            logger.debug("get_commit_body failed", exc_info=True)
             return "unknown"
 
 
-# 全局 Git 工具实例
-_git_utils_instance = None
-
-
 def get_git_utils(config_path: Optional[str] = None) -> GitUtils:
-    """获取 Git 工具实例"""
-    global _git_utils_instance
-    if _git_utils_instance is None:
-        _git_utils_instance = GitUtils(config_path)
-    return _git_utils_instance
+    """Return a fresh :class:`GitUtils` instance.
+
+    Review finding M2: the previous implementation cached a single
+    instance in a module-level ``_git_utils_instance`` global. The
+    class is cheap to construct (just parses the config) and
+    callers in labrun create at most one instance per process, so
+    the cache added hidden coupling without saving anything. Each
+    call now gets a fresh instance — tests can construct their own
+    without having to fight a global cache.
+    """
+    return GitUtils(config_path)
+
+
+__all__ = ["GitUtils", "GitRequireCleanError", "get_git_utils"]
